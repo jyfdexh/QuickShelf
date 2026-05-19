@@ -1,0 +1,9 @@
+.dotnet/
+dotnet-install.ps1
+publish/
+artifacts/QuickShelf-publish-verify/
+**/bin/
+**/obj/
+*.user
+*.suo
+.vs/
