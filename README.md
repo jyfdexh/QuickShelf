@@ -2,7 +2,8 @@
 
 QuickShelf 是一个面向 Windows 的轻量级应用启动器，用于快速搜索、收藏和启动本机应用、文件、文件夹与系统开始菜单项目。
 
-![QuickShelf preview](artifacts/quickshelf-win11-rounded-preview.png)
+<img width="1550" height="925" alt="image" src="https://github.com/user-attachments/assets/78c0cb6e-e31c-4cf1-bbe1-e1d57005442c" />
+
 
 ## 功能
 
