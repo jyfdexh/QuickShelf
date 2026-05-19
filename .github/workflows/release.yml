@@ -1,0 +1,103 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  APP_NAME: QuickShelf
+  CONFIGURATION: Release
+  PROJECT_PATH: QuickShelf/QuickShelf.csproj
+  RUNTIME: win-x64
+  SOLUTION_PATH: QuickShelf.sln
+
+jobs:
+  release:
+    name: Build and publish Windows release
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore $env:SOLUTION_PATH
+
+      - name: Publish
+        id: package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $packageName = "$env:APP_NAME-$tag-$env:RUNTIME"
+          $publishDir = Join-Path $env:RUNNER_TEMP $packageName
+          $zipPath = Join-Path $env:RUNNER_TEMP "$packageName.zip"
+
+          dotnet publish $env:PROJECT_PATH `
+            -c $env:CONFIGURATION `
+            -r $env:RUNTIME `
+            --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:EnableCompressionInSingleFile=true `
+            -p:DebugType=none `
+            -p:DebugSymbols=false `
+            -o $publishDir
+
+          Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+
+          $hash = (Get-FileHash -LiteralPath $zipPath -Algorithm SHA256).Hash
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+          "zip_name=$packageName.zip" >> $env:GITHUB_OUTPUT
+          "sha256=$hash" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.zip_name }}
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG_NAME: ${{ github.ref_name }}
+          ZIP_NAME: ${{ steps.package.outputs.zip_name }}
+          ZIP_PATH: ${{ steps.package.outputs.zip_path }}
+          ZIP_SHA256: ${{ steps.package.outputs.sha256 }}
+        run: |
+          $notesPath = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          @"
+          ## QuickShelf $env:TAG_NAME
+
+          Windows x64 self-contained release.
+
+          Download $env:ZIP_NAME, unzip it, and run QuickShelf.exe.
+
+          SHA256: $env:ZIP_SHA256
+          "@ | Set-Content -LiteralPath $notesPath -Encoding UTF8
+
+          gh release view $env:TAG_NAME --repo $env:GITHUB_REPOSITORY *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit $env:TAG_NAME `
+              --repo $env:GITHUB_REPOSITORY `
+              --title "QuickShelf $env:TAG_NAME" `
+              --notes-file $notesPath
+            gh release upload $env:TAG_NAME $env:ZIP_PATH `
+              --repo $env:GITHUB_REPOSITORY `
+              --clobber
+          } else {
+            gh release create $env:TAG_NAME $env:ZIP_PATH `
+              --repo $env:GITHUB_REPOSITORY `
+              --title "QuickShelf $env:TAG_NAME" `
+              --notes-file $notesPath
+          }
