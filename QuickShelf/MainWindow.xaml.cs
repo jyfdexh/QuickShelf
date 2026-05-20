@@ -60,6 +60,8 @@ public partial class MainWindow : Window
     private const string SourceManual = "手动添加";
     private const string SourceDragDrop = "拖拽添加";
     private const string SourceAppsFolder = "AppsFolder";
+    private const string AllFavoriteGroupsLabel = "全部";
+    private const string DefaultFavoriteGroupName = "应用";
 
     private static readonly string[] NoisyAllAppFragments =
     [
@@ -82,17 +84,21 @@ public partial class MainWindow : Window
     private readonly IconCache _iconCache = new();
     private readonly ObservableCollection<LaunchItem> _allItems = [];
     private readonly ObservableCollection<LaunchItem> _favorites = [];
+    private readonly ObservableCollection<string> _favoriteGroups = [];
     private readonly ICollectionView _allItemsView;
+    private readonly ICollectionView _favoriteItemsView;
     private readonly Dictionary<string, SearchIndex> _searchIndexes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _compactHiddenAllItemIds = new(StringComparer.Ordinal);
     private readonly bool _startHidden;
 
     private AppSettings _settings = new();
+    private string _activeFavoriteGroup = AllFavoriteGroupsLabel;
     private WinForms.NotifyIcon? _notifyIcon;
     private HwndSource? _hwndSource;
     private bool _allowClose;
     private bool _isBusy;
     private bool _isApplyingSettings;
+    private bool _isUpdatingFavoriteGroups;
     private bool _hotKeyRegistered;
     private bool _favoriteOrderChangedDuringDrag;
     private IntPtr _keyboardHookHandle;
@@ -117,8 +123,11 @@ public partial class MainWindow : Window
 
         _allItemsView = CollectionViewSource.GetDefaultView(_allItems);
         _allItemsView.Filter = FilterAllItems;
+        _favoriteItemsView = CollectionViewSource.GetDefaultView(_favorites);
+        _favoriteItemsView.Filter = FilterFavorites;
         AllItemsList.ItemsSource = _allItemsView;
-        FavoritesList.ItemsSource = _favorites;
+        FavoritesList.ItemsSource = _favoriteItemsView;
+        FavoriteGroupList.ItemsSource = _favoriteGroups;
 
         SourceInitialized += MainWindow_SourceInitialized;
         Loaded += MainWindow_Loaded;
@@ -243,6 +252,41 @@ public partial class MainWindow : Window
         }
 
         SetStatus("选择堆栈项目后，可用排序或移除按钮管理。");
+    }
+
+    private void FavoriteGroupList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isUpdatingFavoriteGroups || FavoriteGroupList.SelectedItem is not string groupName)
+        {
+            return;
+        }
+
+        _activeFavoriteGroup = groupName;
+        _favoriteItemsView.Refresh();
+        UpdateFavoriteCount();
+        SetStatus(groupName == AllFavoriteGroupsLabel
+            ? "正在查看全部堆栈项目。"
+            : $"正在查看「{groupName}」分组。");
+    }
+
+    private void SetFavoriteGroupButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (FavoritesList.SelectedItem is not LaunchItem item)
+        {
+            SetStatus("请选择要分组的堆栈项目。");
+            return;
+        }
+
+        var groupName = GroupNameBox.Text.Trim();
+        if (string.IsNullOrWhiteSpace(groupName))
+        {
+            SetStatus("请输入分组名。");
+            GroupNameBox.Focus();
+            return;
+        }
+
+        SetFavoriteGroup(item, groupName);
+        GroupNameBox.SelectAll();
     }
 
     private void SearchToggleButton_Click(object sender, RoutedEventArgs e)
@@ -699,13 +743,14 @@ public partial class MainWindow : Window
             item.IconPath = _iconCache.TryGetIconPath(item);
             AddOrReplaceAllItem(item);
 
-            if (_favorites.Any(existing => existing.Id == item.Id))
+            if (FindDuplicateFavorite(item) is not null)
             {
                 skippedCount++;
                 continue;
             }
 
             var favorite = item.Clone();
+            favorite.GroupName = GetNewFavoriteGroupName(item);
             _favorites.Add(favorite);
             lastAdded = favorite;
             addedCount++;
@@ -719,7 +764,7 @@ public partial class MainWindow : Window
         if (addedCount > 0)
         {
             SaveSettings();
-            UpdateFavoriteCount();
+            UpdateFavoriteGroups();
         }
 
         SetStatus(addedCount > 0
@@ -963,6 +1008,17 @@ public partial class MainWindow : Window
         SetStatus($"已复制路径：{item.Name}");
     }
 
+    private void SetFavoriteGroupMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is not LaunchItem item ||
+            (sender as FrameworkElement)?.Tag is not string groupName)
+        {
+            return;
+        }
+
+        SetFavoriteGroup(item, groupName);
+    }
+
     private void RemoveFavoriteMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (GetMenuItemLaunchItem(sender) is LaunchItem item)
@@ -1023,9 +1079,12 @@ public partial class MainWindow : Window
 
         foreach (var item in _settings.Favorites)
         {
+            item.GroupName = NormalizeFavoriteGroupName(item.GroupName, item);
             item.IconPath = _iconCache.TryGetIconPath(item);
             _favorites.Add(item);
         }
+
+        DeduplicateFavorites();
 
         _isApplyingSettings = true;
         GlassToggle.IsChecked = _settings.UseGlass;
@@ -1063,7 +1122,7 @@ public partial class MainWindow : Window
         ApplyVisualSettings();
         RegisterConfiguredHotKey();
         UpdateHotKeySummary();
-        UpdateFavoriteCount();
+        UpdateFavoriteGroups();
         SaveSettings();
         SetStatus($"配置文件：{_settingsStore.SettingsPath}");
     }
@@ -1072,6 +1131,20 @@ public partial class MainWindow : Window
     {
         _settings.Favorites = _favorites.Select(item => item.Clone()).ToList();
         _settingsStore.Save(_settings);
+    }
+
+    private bool FilterFavorites(object value)
+    {
+        if (value is not LaunchItem item)
+        {
+            return false;
+        }
+
+        return _activeFavoriteGroup == AllFavoriteGroupsLabel ||
+               string.Equals(
+                   NormalizeFavoriteGroupName(item.GroupName, item),
+                   _activeFavoriteGroup,
+                   StringComparison.OrdinalIgnoreCase);
     }
 
     private bool FilterAllItems(object value)
@@ -1418,18 +1491,19 @@ public partial class MainWindow : Window
 
     private void AddFavorite(LaunchItem item)
     {
-        if (_favorites.Any(existing => existing.Id == item.Id))
+        if (FindDuplicateFavorite(item) is { } duplicate)
         {
-            SetStatus($"已在堆栈中：{item.Name}");
+            SetStatus($"已在堆栈中：{duplicate.Name}");
             return;
         }
 
         var favorite = item.Clone();
+        favorite.GroupName = GetNewFavoriteGroupName(item);
         _favorites.Add(favorite);
         FavoritesList.SelectedItem = favorite;
         SaveSettings();
-        UpdateFavoriteCount();
-        SetStatus($"已加入堆栈：{item.Name}");
+        UpdateFavoriteGroups();
+        SetStatus($"已加入「{favorite.GroupName}」：{item.Name}");
     }
 
     private void AddOrReplaceAllItem(LaunchItem item)
@@ -1487,22 +1561,31 @@ public partial class MainWindow : Window
 
     private void MoveFavorite(int direction)
     {
-        var index = FavoritesList.SelectedIndex;
-        if (index < 0)
+        if (FavoritesList.SelectedItem is not LaunchItem item)
         {
             SetStatus("请选择要排序的项目。");
             return;
         }
 
-        var targetIndex = index + direction;
-        if (targetIndex < 0 || targetIndex >= _favorites.Count)
+        var visibleFavorites = GetVisibleFavorites();
+        var visibleIndex = visibleFavorites.IndexOf(item);
+        var targetVisibleIndex = visibleIndex + direction;
+        if (visibleIndex < 0 || targetVisibleIndex < 0 || targetVisibleIndex >= visibleFavorites.Count)
         {
             return;
         }
 
-        _favorites.Move(index, targetIndex);
-        FavoritesList.SelectedIndex = targetIndex;
+        var oldIndex = _favorites.IndexOf(item);
+        var targetIndex = _favorites.IndexOf(visibleFavorites[targetVisibleIndex]);
+        if (oldIndex < 0 || targetIndex < 0 || oldIndex == targetIndex)
+        {
+            return;
+        }
+
+        _favorites.Move(oldIndex, targetIndex);
+        FavoritesList.SelectedItem = item;
         SaveSettings();
+        _favoriteItemsView.Refresh();
         SetStatus("已更新堆栈顺序。");
     }
 
@@ -1516,14 +1599,156 @@ public partial class MainWindow : Window
 
         _favorites.RemoveAt(index);
         SaveSettings();
-        UpdateFavoriteCount();
+        UpdateFavoriteGroups();
 
-        if (_favorites.Count > 0)
+        var visibleFavorites = GetVisibleFavorites();
+        if (visibleFavorites.Count > 0)
         {
-            FavoritesList.SelectedIndex = Math.Min(index, _favorites.Count - 1);
+            FavoritesList.SelectedItem = visibleFavorites[Math.Min(index, visibleFavorites.Count - 1)];
         }
 
         SetStatus($"已移除：{item.Name}");
+    }
+
+    private void SetFavoriteGroup(LaunchItem item, string groupName)
+    {
+        var normalizedGroup = NormalizeFavoriteGroupName(groupName, item);
+        item.GroupName = normalizedGroup;
+        SaveSettings();
+        UpdateFavoriteGroups();
+        _activeFavoriteGroup = normalizedGroup;
+        FavoriteGroupList.SelectedItem = normalizedGroup;
+        _favoriteItemsView.Refresh();
+        FavoritesList.SelectedItem = item;
+        GroupNameBox.Text = normalizedGroup;
+        SetStatus($"已将 {item.Name} 移到「{normalizedGroup}」。");
+    }
+
+    private void UpdateFavoriteGroups()
+    {
+        var previousGroup = _activeFavoriteGroup;
+        var groups = new List<string> { AllFavoriteGroupsLabel };
+
+        foreach (var groupName in _favorites
+                     .Select(item => NormalizeFavoriteGroupName(item.GroupName, item))
+                     .Where(groupName => !string.IsNullOrWhiteSpace(groupName))
+                     .Distinct(StringComparer.OrdinalIgnoreCase)
+                     .OrderBy(groupName => groupName == DefaultFavoriteGroupName ? 0 : 1)
+                     .ThenBy(groupName => groupName, StringComparer.CurrentCultureIgnoreCase))
+        {
+            groups.Add(groupName);
+        }
+
+        if (!groups.Contains(previousGroup, StringComparer.OrdinalIgnoreCase))
+        {
+            previousGroup = AllFavoriteGroupsLabel;
+        }
+
+        _isUpdatingFavoriteGroups = true;
+        _favoriteGroups.Clear();
+        foreach (var groupName in groups)
+        {
+            _favoriteGroups.Add(groupName);
+        }
+
+        _activeFavoriteGroup = previousGroup;
+        FavoriteGroupList.SelectedItem = _activeFavoriteGroup;
+        _isUpdatingFavoriteGroups = false;
+
+        _favoriteItemsView.Refresh();
+        UpdateFavoriteCount();
+    }
+
+    private List<LaunchItem> GetVisibleFavorites()
+    {
+        return _favoriteItemsView.Cast<LaunchItem>().ToList();
+    }
+
+    private string GetNewFavoriteGroupName(LaunchItem item)
+    {
+        return _activeFavoriteGroup == AllFavoriteGroupsLabel
+            ? NormalizeFavoriteGroupName(item.GroupName, item)
+            : _activeFavoriteGroup;
+    }
+
+    private static string NormalizeFavoriteGroupName(string? groupName, LaunchItem item)
+    {
+        if (!string.IsNullOrWhiteSpace(groupName))
+        {
+            return groupName.Trim();
+        }
+
+        return item.Kind is LaunchItemKind.File or LaunchItemKind.Folder
+            ? "文件"
+            : DefaultFavoriteGroupName;
+    }
+
+    private LaunchItem? FindDuplicateFavorite(LaunchItem item)
+    {
+        var duplicateKey = GetFavoriteDuplicateKey(item);
+        return _favorites.FirstOrDefault(existing =>
+            string.Equals(GetFavoriteDuplicateKey(existing), duplicateKey, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void DeduplicateFavorites()
+    {
+        var deduplicated = _favorites
+            .GroupBy(GetFavoriteDuplicateKey, StringComparer.OrdinalIgnoreCase)
+            .Select(group =>
+            {
+                var items = group.ToList();
+                var kept = items
+                    .OrderBy(GetFavoriteKeepPriority)
+                    .ThenBy(item => item.Path.Length)
+                    .First();
+                kept.GroupName = items
+                    .Select(item => NormalizeFavoriteGroupName(item.GroupName, item))
+                    .FirstOrDefault(groupName => !string.IsNullOrWhiteSpace(groupName)) ?? NormalizeFavoriteGroupName(kept.GroupName, kept);
+                return kept;
+            })
+            .ToList();
+
+        if (deduplicated.Count == _favorites.Count)
+        {
+            return;
+        }
+
+        _favorites.Clear();
+        foreach (var item in deduplicated)
+        {
+            _favorites.Add(item);
+        }
+    }
+
+    private static string GetFavoriteDuplicateKey(LaunchItem item)
+    {
+        if (item.Kind is LaunchItemKind.Shortcut or LaunchItemKind.Executable or LaunchItemKind.AppsFolder)
+        {
+            return "app:" + NormalizeDuplicateKey(item.Name);
+        }
+
+        return item.Kind + ":" + NormalizePathKey(item.Path);
+    }
+
+    private static int GetFavoriteKeepPriority(LaunchItem item)
+    {
+        return item.Kind switch
+        {
+            LaunchItemKind.Executable => 0,
+            LaunchItemKind.AppsFolder => 1,
+            LaunchItemKind.Shortcut => 2,
+            LaunchItemKind.Folder => 3,
+            LaunchItemKind.File => 4,
+            _ => 5
+        };
+    }
+
+    private static string NormalizePathKey(string value)
+    {
+        return Environment.ExpandEnvironmentVariables(value.Trim())
+            .Replace('\\', '/')
+            .TrimEnd('/')
+            .ToLowerInvariant();
     }
 
     private void LaunchSelectedFromFocusedList()
@@ -2042,7 +2267,10 @@ public partial class MainWindow : Window
 
     private void UpdateFavoriteCount()
     {
-        FavoriteCountText.Text = $"{_favorites.Count} 项";
+        var visibleCount = GetVisibleFavorites().Count;
+        FavoriteCountText.Text = _activeFavoriteGroup == AllFavoriteGroupsLabel || visibleCount == _favorites.Count
+            ? $"{_favorites.Count} 项"
+            : $"{visibleCount}/{_favorites.Count} 项";
     }
 
     private void SetStatus(string message)

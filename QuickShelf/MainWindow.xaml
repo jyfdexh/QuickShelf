@@ -356,6 +356,50 @@
             </Setter>
         </Style>
 
+        <Style x:Key="GroupChipListBoxItemStyle" TargetType="ListBoxItem">
+            <Setter Property="MinWidth" Value="54" />
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Padding" Value="14,0" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="Foreground" Value="#475467" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="Root"
+                                Background="#F7FBFF"
+                                BorderBrush="#D5E3F6"
+                                BorderThickness="1"
+                                CornerRadius="17"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="#EAF3FF" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource BlueBrush}" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource BlueBrush}" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <DataTemplate x:Key="GroupChipTemplate">
+            <TextBlock Text="{Binding}"
+                       Foreground="{Binding Foreground, RelativeSource={RelativeSource AncestorType=ListBoxItem}}"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       TextTrimming="CharacterEllipsis" />
+        </DataTemplate>
+
         <Style TargetType="ComboBox">
             <Setter Property="Height" Value="34" />
             <Setter Property="Padding" Value="8,4" />
@@ -447,6 +491,27 @@
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
                                   Click="CopyFavoritePathMenuItem_Click" />
+                        <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
+                        <MenuItem Header="分组：应用"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Tag="应用"
+                                  Click="SetFavoriteGroupMenuItem_Click" />
+                        <MenuItem Header="分组：工作"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Tag="工作"
+                                  Click="SetFavoriteGroupMenuItem_Click" />
+                        <MenuItem Header="分组：工具"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Tag="工具"
+                                  Click="SetFavoriteGroupMenuItem_Click" />
+                        <MenuItem Header="分组：文件"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Tag="文件"
+                                  Click="SetFavoriteGroupMenuItem_Click" />
                     </ContextMenu>
                 </Grid.ContextMenu>
                 <Grid.RowDefinitions>
@@ -653,6 +718,7 @@
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
 
@@ -679,7 +745,47 @@
                             </StackPanel>
                         </DockPanel>
 
-                        <ScrollViewer Grid.Row="1"
+                        <Grid Grid.Row="1" Margin="0,0,0,18">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="128" />
+                                <ColumnDefinition Width="76" />
+                            </Grid.ColumnDefinitions>
+
+                            <ListBox x:Name="FavoriteGroupList"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Hidden"
+                                     ItemTemplate="{StaticResource GroupChipTemplate}"
+                                     ItemContainerStyle="{StaticResource GroupChipListBoxItemStyle}"
+                                     SelectionMode="Single"
+                                     SelectionChanged="FavoriteGroupList_SelectionChanged">
+                                <ListBox.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ListBox.ItemsPanel>
+                            </ListBox>
+
+                            <TextBox x:Name="GroupNameBox"
+                                     Grid.Column="1"
+                                     Height="34"
+                                     Margin="8,0,0,0"
+                                     Padding="12,7"
+                                     ToolTip="输入分组名，选中堆栈项目后点击分组"
+                                     VerticalContentAlignment="Center" />
+                            <Button Grid.Column="2"
+                                    Height="34"
+                                    Margin="8,0,0,0"
+                                    Content="分组"
+                                    Style="{StaticResource ToolbarButtonStyle}"
+                                    MinWidth="68"
+                                    Padding="10,0"
+                                    Click="SetFavoriteGroupButton_Click" />
+                        </Grid>
+
+                        <ScrollViewer Grid.Row="2"
                                       VerticalScrollBarVisibility="Hidden"
                                       HorizontalScrollBarVisibility="Disabled">
                             <ListBox x:Name="FavoritesList"
