@@ -491,27 +491,6 @@
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
                                   Click="CopyFavoritePathMenuItem_Click" />
-                        <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
-                        <MenuItem Header="分组：应用"
-                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
-                                  CommandParameter="{Binding}"
-                                  Tag="应用"
-                                  Click="SetFavoriteGroupMenuItem_Click" />
-                        <MenuItem Header="分组：工作"
-                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
-                                  CommandParameter="{Binding}"
-                                  Tag="工作"
-                                  Click="SetFavoriteGroupMenuItem_Click" />
-                        <MenuItem Header="分组：工具"
-                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
-                                  CommandParameter="{Binding}"
-                                  Tag="工具"
-                                  Click="SetFavoriteGroupMenuItem_Click" />
-                        <MenuItem Header="分组：文件"
-                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
-                                  CommandParameter="{Binding}"
-                                  Tag="文件"
-                                  Click="SetFavoriteGroupMenuItem_Click" />
                     </ContextMenu>
                 </Grid.ContextMenu>
                 <Grid.RowDefinitions>
@@ -753,6 +732,11 @@
                                      ItemTemplate="{StaticResource GroupChipTemplate}"
                                      ItemContainerStyle="{StaticResource GroupChipListBoxItemStyle}"
                                      SelectionMode="Single"
+                                     AllowDrop="True"
+                                     PreviewMouseLeftButtonDown="FavoriteGroupList_PreviewMouseLeftButtonDown"
+                                     PreviewMouseMove="FavoriteGroupList_PreviewMouseMove"
+                                     DragOver="FavoriteGroupList_DragOver"
+                                     Drop="FavoriteGroupList_Drop"
                                      SelectionChanged="FavoriteGroupList_SelectionChanged">
                                 <ListBox.ItemsPanel>
                                     <ItemsPanelTemplate>

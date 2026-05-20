@@ -62,6 +62,7 @@ public partial class MainWindow : Window
     private const string SourceAppsFolder = "AppsFolder";
     private const string AllFavoriteGroupsLabel = "全部";
     private const string DefaultFavoriteGroupName = "应用";
+    private const string FavoriteGroupDragDataFormat = "QuickShelf.FavoriteGroup";
 
     private static readonly string[] NoisyAllAppFragments =
     [
@@ -108,6 +109,7 @@ public partial class MainWindow : Window
     private long _lastCaptureCtrlTick;
     private System.Windows.Point _favoriteDragStartPoint;
     private System.Windows.Point _favoriteDragPointerOffset;
+    private System.Windows.Point _favoriteGroupDragStartPoint;
     private ListBoxItem? _draggedFavoriteContainer;
     private FavoriteDragPreviewWindow? _favoriteDragPreviewWindow;
 
@@ -267,6 +269,82 @@ public partial class MainWindow : Window
         SetStatus(groupName == AllFavoriteGroupsLabel
             ? "正在查看全部堆栈项目。"
             : $"正在查看「{groupName}」分组。");
+    }
+
+    private void FavoriteGroupList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _favoriteGroupDragStartPoint = e.GetPosition(null);
+
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { } listBoxItem)
+        {
+            listBoxItem.IsSelected = true;
+        }
+    }
+
+    private void FavoriteGroupList_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        var currentPosition = e.GetPosition(null);
+        if (Math.Abs(currentPosition.X - _favoriteGroupDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(currentPosition.Y - _favoriteGroupDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not { } listBoxItem ||
+            listBoxItem.DataContext is not string groupName ||
+            string.Equals(groupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var data = new System.Windows.DataObject();
+        data.SetData(FavoriteGroupDragDataFormat, groupName);
+        DragDrop.DoDragDrop(FavoriteGroupList, data, System.Windows.DragDropEffects.Move);
+    }
+
+    private void FavoriteGroupList_DragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(typeof(LaunchItem)))
+        {
+            e.Effects = GetTargetFavoriteGroup(e) is null
+                ? System.Windows.DragDropEffects.None
+                : System.Windows.DragDropEffects.Move;
+        }
+        else if (e.Data.GetDataPresent(FavoriteGroupDragDataFormat))
+        {
+            e.Effects = System.Windows.DragDropEffects.Move;
+        }
+        else
+        {
+            e.Effects = System.Windows.DragDropEffects.None;
+        }
+
+        e.Handled = true;
+    }
+
+    private void FavoriteGroupList_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetData(typeof(LaunchItem)) is LaunchItem item)
+        {
+            if (GetTargetFavoriteGroup(e) is { } groupName)
+            {
+                SetFavoriteGroup(item, groupName);
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Data.GetData(FavoriteGroupDragDataFormat) is string draggedGroup)
+        {
+            MoveFavoriteGroup(e, draggedGroup);
+            e.Handled = true;
+        }
     }
 
     private void AddFavoriteGroupButton_Click(object sender, RoutedEventArgs e)
@@ -1044,17 +1122,6 @@ public partial class MainWindow : Window
         SetStatus($"已复制路径：{item.Name}");
     }
 
-    private void SetFavoriteGroupMenuItem_Click(object sender, RoutedEventArgs e)
-    {
-        if (GetMenuItemLaunchItem(sender) is not LaunchItem item ||
-            (sender as FrameworkElement)?.Tag is not string groupName)
-        {
-            return;
-        }
-
-        SetFavoriteGroup(item, groupName);
-    }
-
     private void RemoveFavoriteMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (GetMenuItemLaunchItem(sender) is LaunchItem item)
@@ -1670,6 +1737,11 @@ public partial class MainWindow : Window
     private void SetFavoriteGroup(LaunchItem item, string groupName)
     {
         var normalizedGroup = NormalizeFavoriteGroupName(groupName, item);
+        if (string.Equals(normalizedGroup, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
         EnsureFavoriteGroup(normalizedGroup);
         item.GroupName = normalizedGroup;
         SaveSettings();
@@ -1679,6 +1751,92 @@ public partial class MainWindow : Window
         _favoriteItemsView.Refresh();
         FavoritesList.SelectedItem = item;
         SetStatus($"已将 {item.Name} 移到「{normalizedGroup}」。");
+    }
+
+    private string? GetTargetFavoriteGroup(System.Windows.DragEventArgs e)
+    {
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)?.DataContext is not string groupName ||
+            string.Equals(groupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        return groupName;
+    }
+
+    private void MoveFavoriteGroup(System.Windows.DragEventArgs e, string draggedGroup)
+    {
+        if (string.IsNullOrWhiteSpace(draggedGroup) ||
+            string.Equals(draggedGroup, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var groups = _favoriteGroups
+            .Where(groupName => !string.Equals(groupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        var oldIndex = groups.FindIndex(groupName =>
+            string.Equals(groupName, draggedGroup, StringComparison.OrdinalIgnoreCase));
+        if (oldIndex < 0)
+        {
+            return;
+        }
+
+        var targetIndex = GetFavoriteGroupDropIndex(e, groups, draggedGroup, oldIndex);
+        if (targetIndex < 0 || targetIndex == oldIndex)
+        {
+            return;
+        }
+
+        var movedGroup = groups[oldIndex];
+        groups.RemoveAt(oldIndex);
+        targetIndex = Math.Clamp(targetIndex, 0, groups.Count);
+        groups.Insert(targetIndex, movedGroup);
+
+        _settings.FavoriteGroups = groups;
+        _activeFavoriteGroup = movedGroup;
+        SaveSettings();
+        UpdateFavoriteGroups();
+        FavoriteGroupList.SelectedItem = movedGroup;
+        SetStatus("已更新分组顺序。");
+    }
+
+    private int GetFavoriteGroupDropIndex(
+        System.Windows.DragEventArgs e,
+        IReadOnlyList<string> groups,
+        string draggedGroup,
+        int oldIndex)
+    {
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not { } targetItem ||
+            targetItem.DataContext is not string targetGroup)
+        {
+            return groups.Count - 1;
+        }
+
+        var targetIndex = string.Equals(targetGroup, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase)
+            ? 0
+            : groups.ToList().FindIndex(groupName =>
+                string.Equals(groupName, targetGroup, StringComparison.OrdinalIgnoreCase));
+
+        if (targetIndex < 0 ||
+            string.Equals(targetGroup, draggedGroup, StringComparison.OrdinalIgnoreCase))
+        {
+            return oldIndex;
+        }
+
+        var position = e.GetPosition(targetItem);
+        if (position.X > targetItem.ActualWidth / 2)
+        {
+            targetIndex++;
+        }
+
+        if (oldIndex < targetIndex)
+        {
+            targetIndex--;
+        }
+
+        return Math.Clamp(targetIndex, 0, groups.Count - 1);
     }
 
     private void UpdateFavoriteGroups()
