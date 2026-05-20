@@ -54,9 +54,15 @@ public sealed class SettingsStore
             StartWithWindows = settings.StartWithWindows,
             AccentColor = settings.AccentColor,
             CompactAllApps = settings.CompactAllApps,
+            HideShortcutItems = settings.HideShortcutItems,
             ShowStartMenuItems = settings.ShowStartMenuItems,
             ShowRegistryItems = settings.ShowRegistryItems,
             ShowAppsFolderItems = settings.ShowAppsFolderItems,
+            FavoriteGroups = settings.FavoriteGroups
+                .Select(groupName => groupName.Trim())
+                .Where(groupName => !string.IsNullOrWhiteSpace(groupName))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList(),
             Favorites = settings.Favorites.Select(item => item.Clone()).ToList()
         };
 

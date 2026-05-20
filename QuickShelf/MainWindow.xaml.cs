@@ -269,24 +269,57 @@ public partial class MainWindow : Window
             : $"正在查看「{groupName}」分组。");
     }
 
-    private void SetFavoriteGroupButton_Click(object sender, RoutedEventArgs e)
+    private void AddFavoriteGroupButton_Click(object sender, RoutedEventArgs e)
     {
-        if (FavoritesList.SelectedItem is not LaunchItem item)
-        {
-            SetStatus("请选择要分组的堆栈项目。");
-            return;
-        }
+        NewGroupNameBox.Text = string.Empty;
+        NewGroupPopup.IsOpen = true;
+        NewGroupNameBox.Focus();
+    }
 
-        var groupName = GroupNameBox.Text.Trim();
+    private void CreateFavoriteGroupButton_Click(object sender, RoutedEventArgs e)
+    {
+        CreateFavoriteGroupFromInput();
+    }
+
+    private void NewGroupNameBox_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter)
+        {
+            CreateFavoriteGroupFromInput();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Escape)
+        {
+            NewGroupPopup.IsOpen = false;
+            e.Handled = true;
+        }
+    }
+
+    private void CreateFavoriteGroupFromInput()
+    {
+        var groupName = NewGroupNameBox.Text.Trim();
         if (string.IsNullOrWhiteSpace(groupName))
         {
             SetStatus("请输入分组名。");
-            GroupNameBox.Focus();
+            NewGroupNameBox.Focus();
             return;
         }
 
-        SetFavoriteGroup(item, groupName);
-        GroupNameBox.SelectAll();
+        groupName = NormalizeFavoriteGroupName(groupName, null);
+        EnsureFavoriteGroup(groupName);
+        if (FavoritesList.SelectedItem is LaunchItem item)
+        {
+            item.GroupName = groupName;
+        }
+
+        _activeFavoriteGroup = groupName;
+        NewGroupPopup.IsOpen = false;
+        SaveSettings();
+        UpdateFavoriteGroups();
+        FavoriteGroupList.SelectedItem = groupName;
+        SetStatus(FavoritesList.SelectedItem is LaunchItem selected
+            ? $"已创建「{groupName}」，并将 {selected.Name} 移入该分组。"
+            : $"已创建「{groupName}」分组。");
     }
 
     private void SearchToggleButton_Click(object sender, RoutedEventArgs e)
@@ -357,10 +390,11 @@ public partial class MainWindow : Window
             return;
         }
 
+        var compactAllApps = CompactAllAppsToggle.IsChecked == true;
         var showStartMenu = ShowStartMenuToggle.IsChecked == true;
         var showRegistry = ShowRegistryToggle.IsChecked == true;
         var showAppsFolder = ShowAppsFolderToggle.IsChecked == true;
-        if (!showStartMenu && !showRegistry && !showAppsFolder)
+        if (compactAllApps && !showStartMenu && !showRegistry && !showAppsFolder)
         {
             _isApplyingSettings = true;
             if (sender is System.Windows.Controls.CheckBox changedToggle)
@@ -373,11 +407,13 @@ public partial class MainWindow : Window
             return;
         }
 
-        _settings.CompactAllApps = CompactAllAppsToggle.IsChecked == true;
+        _settings.CompactAllApps = compactAllApps;
+        _settings.HideShortcutItems = HideShortcutItemsToggle.IsChecked == true;
         _settings.ShowStartMenuItems = showStartMenu;
         _settings.ShowRegistryItems = showRegistry;
         _settings.ShowAppsFolderItems = showAppsFolder;
 
+        UpdateCompactOptionsVisibility();
         RebuildCompactAllItemFilter();
         _allItemsView.Refresh();
         SaveSettings();
@@ -1068,6 +1104,7 @@ public partial class MainWindow : Window
     private void LoadSettings()
     {
         _settings = _settingsStore.Load();
+        _settings.FavoriteGroups = NormalizeFavoriteGroups(_settings.FavoriteGroups).ToList();
         if (!_settings.ShowStartMenuItems && !_settings.ShowRegistryItems && !_settings.ShowAppsFolderItems)
         {
             _settings.ShowStartMenuItems = true;
@@ -1090,9 +1127,11 @@ public partial class MainWindow : Window
         GlassToggle.IsChecked = _settings.UseGlass;
         OpacitySlider.Value = Math.Clamp(_settings.GlassOpacity, OpacitySlider.Minimum, OpacitySlider.Maximum);
         CompactAllAppsToggle.IsChecked = _settings.CompactAllApps;
+        HideShortcutItemsToggle.IsChecked = _settings.HideShortcutItems;
         ShowStartMenuToggle.IsChecked = _settings.ShowStartMenuItems;
         ShowRegistryToggle.IsChecked = _settings.ShowRegistryItems;
         ShowAppsFolderToggle.IsChecked = _settings.ShowAppsFolderItems;
+        UpdateCompactOptionsVisibility();
         var startupRegistryValue = GetStartupRegistryValue();
         var startupEnabledForCurrentExecutable = IsStartupCommandForCurrentExecutable(startupRegistryValue);
         if (_settings.StartWithWindows && !startupEnabledForCurrentExecutable)
@@ -1180,6 +1219,11 @@ public partial class MainWindow : Window
 
     private bool ShouldShowAllItemSource(LaunchItem item)
     {
+        if (!_settings.CompactAllApps)
+        {
+            return true;
+        }
+
         if (IsManualSource(item))
         {
             return true;
@@ -1214,6 +1258,14 @@ public partial class MainWindow : Window
         foreach (var item in _allItems.Where(IsLowValueAllItem))
         {
             _compactHiddenAllItemIds.Add(item.Id);
+        }
+
+        if (_settings.HideShortcutItems)
+        {
+            foreach (var item in _allItems.Where(IsShortcutFilterCandidate))
+            {
+                _compactHiddenAllItemIds.Add(item.Id);
+            }
         }
 
         var duplicateGroups = _allItems
@@ -1301,6 +1353,11 @@ public partial class MainWindow : Window
     {
         return !IsManualSource(item) &&
                item.Kind is LaunchItemKind.Shortcut or LaunchItemKind.Executable or LaunchItemKind.AppsFolder;
+    }
+
+    private static bool IsShortcutFilterCandidate(LaunchItem item)
+    {
+        return !IsManualSource(item) && item.Kind == LaunchItemKind.Shortcut;
     }
 
     private static int GetAllItemDisplayPriority(LaunchItem item)
@@ -1613,6 +1670,7 @@ public partial class MainWindow : Window
     private void SetFavoriteGroup(LaunchItem item, string groupName)
     {
         var normalizedGroup = NormalizeFavoriteGroupName(groupName, item);
+        EnsureFavoriteGroup(normalizedGroup);
         item.GroupName = normalizedGroup;
         SaveSettings();
         UpdateFavoriteGroups();
@@ -1620,7 +1678,6 @@ public partial class MainWindow : Window
         FavoriteGroupList.SelectedItem = normalizedGroup;
         _favoriteItemsView.Refresh();
         FavoritesList.SelectedItem = item;
-        GroupNameBox.Text = normalizedGroup;
         SetStatus($"已将 {item.Name} 移到「{normalizedGroup}」。");
     }
 
@@ -1629,6 +1686,11 @@ public partial class MainWindow : Window
         var previousGroup = _activeFavoriteGroup;
         var groups = new List<string> { AllFavoriteGroupsLabel };
 
+        foreach (var groupName in NormalizeFavoriteGroups(_settings.FavoriteGroups))
+        {
+            groups.Add(groupName);
+        }
+
         foreach (var groupName in _favorites
                      .Select(item => NormalizeFavoriteGroupName(item.GroupName, item))
                      .Where(groupName => !string.IsNullOrWhiteSpace(groupName))
@@ -1636,8 +1698,15 @@ public partial class MainWindow : Window
                      .OrderBy(groupName => groupName == DefaultFavoriteGroupName ? 0 : 1)
                      .ThenBy(groupName => groupName, StringComparer.CurrentCultureIgnoreCase))
         {
-            groups.Add(groupName);
+            if (!groups.Contains(groupName, StringComparer.OrdinalIgnoreCase))
+            {
+                groups.Add(groupName);
+            }
         }
+
+        _settings.FavoriteGroups = groups
+            .Where(groupName => !string.Equals(groupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
         if (!groups.Contains(previousGroup, StringComparer.OrdinalIgnoreCase))
         {
@@ -1659,6 +1728,32 @@ public partial class MainWindow : Window
         UpdateFavoriteCount();
     }
 
+    private void EnsureFavoriteGroup(string groupName)
+    {
+        var normalizedGroup = NormalizeFavoriteGroupName(groupName, null);
+        if (string.IsNullOrWhiteSpace(normalizedGroup) ||
+            _settings.FavoriteGroups.Contains(normalizedGroup, StringComparer.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _settings.FavoriteGroups.Add(normalizedGroup);
+    }
+
+    private static IEnumerable<string> NormalizeFavoriteGroups(IEnumerable<string>? groupNames)
+    {
+        if (groupNames is null)
+        {
+            return [];
+        }
+
+        return groupNames
+            .Select(groupName => groupName.Trim())
+            .Where(groupName => !string.IsNullOrWhiteSpace(groupName) &&
+                                !string.Equals(groupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+    }
+
     private List<LaunchItem> GetVisibleFavorites()
     {
         return _favoriteItemsView.Cast<LaunchItem>().ToList();
@@ -1671,14 +1766,14 @@ public partial class MainWindow : Window
             : _activeFavoriteGroup;
     }
 
-    private static string NormalizeFavoriteGroupName(string? groupName, LaunchItem item)
+    private static string NormalizeFavoriteGroupName(string? groupName, LaunchItem? item)
     {
         if (!string.IsNullOrWhiteSpace(groupName))
         {
             return groupName.Trim();
         }
 
-        return item.Kind is LaunchItemKind.File or LaunchItemKind.Folder
+        return item?.Kind is LaunchItemKind.File or LaunchItemKind.Folder
             ? "文件"
             : DefaultFavoriteGroupName;
     }
@@ -2271,6 +2366,13 @@ public partial class MainWindow : Window
         FavoriteCountText.Text = _activeFavoriteGroup == AllFavoriteGroupsLabel || visibleCount == _favorites.Count
             ? $"{_favorites.Count} 项"
             : $"{visibleCount}/{_favorites.Count} 项";
+    }
+
+    private void UpdateCompactOptionsVisibility()
+    {
+        CompactAllAppsOptionsPanel.Visibility = _settings.CompactAllApps
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void SetStatus(string message)

@@ -16,11 +16,15 @@ public sealed class AppSettings
 
     public bool CompactAllApps { get; set; } = true;
 
+    public bool HideShortcutItems { get; set; } = true;
+
     public bool ShowStartMenuItems { get; set; } = true;
 
     public bool ShowRegistryItems { get; set; } = true;
 
     public bool ShowAppsFolderItems { get; set; } = true;
+
+    public List<string> FavoriteGroups { get; set; } = [];
 
     public List<LaunchItem> Favorites { get; set; } = [];
 }
