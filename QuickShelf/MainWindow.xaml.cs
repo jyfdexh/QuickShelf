@@ -2,7 +2,9 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -21,7 +23,7 @@ using WinForms = System.Windows.Forms;
 
 namespace QuickShelf;
 
-public partial class MainWindow : Window
+public partial class MainWindow : Window, INotifyPropertyChanged
 {
     private const int HotKeyId = 0x5153;
     private const int WmHotKey = 0x0312;
@@ -30,6 +32,9 @@ public partial class MainWindow : Window
     private const int WsExTransparent = 0x00000020;
     private const int WsExToolWindow = 0x00000080;
     private const int WsExNoActivate = 0x08000000;
+    private const int HtCaption = 2;
+    private const string MaximizeGlyph = "\uE922";
+    private const string RestoreGlyph = "\uE923";
     private const int HtLeft = 10;
     private const int HtRight = 11;
     private const int HtTop = 12;
@@ -42,7 +47,9 @@ public partial class MainWindow : Window
     private const uint ModControl = 0x0002;
     private const uint ModShift = 0x0004;
     private const uint ModWin = 0x0008;
-    private const double ResizeBorder = 9;
+    private const double ResizeBorder = 14;
+    private const double CornerResizeBorder = 24;
+    private const double HeaderDragHeight = 126;
     private const int WhKeyboardLl = 13;
     private const int WmKeyDown = 0x0100;
     private const int WmSysKeyDown = 0x0104;
@@ -59,10 +66,15 @@ public partial class MainWindow : Window
     private const string SourceRegistry = "注册表";
     private const string SourceManual = "手动添加";
     private const string SourceDragDrop = "拖拽添加";
+    private const string SourceRecent = "最近打开";
     private const string SourceAppsFolder = "AppsFolder";
     private const string AllFavoriteGroupsLabel = "全部";
     private const string DefaultFavoriteGroupName = "应用";
     private const string FavoriteGroupDragDataFormat = "QuickShelf.FavoriteGroup";
+    private const string FolderStackDragDataFormat = "QuickShelf.FolderStackItem";
+    private const string ThemeModeSystem = "System";
+    private const string ThemeModeLight = "Light";
+    private const string ThemeModeDark = "Dark";
 
     private static readonly string[] NoisyAllAppFragments =
     [
@@ -85,6 +97,8 @@ public partial class MainWindow : Window
     private readonly IconCache _iconCache = new();
     private readonly ObservableCollection<LaunchItem> _allItems = [];
     private readonly ObservableCollection<LaunchItem> _favorites = [];
+    private readonly ObservableCollection<LaunchItem> _folders = [];
+    private readonly ObservableCollection<LaunchItem> _recentItems = [];
     private readonly ObservableCollection<string> _favoriteGroups = [];
     private readonly ICollectionView _allItemsView;
     private readonly ICollectionView _favoriteItemsView;
@@ -94,6 +108,7 @@ public partial class MainWindow : Window
 
     private AppSettings _settings = new();
     private string _activeFavoriteGroup = AllFavoriteGroupsLabel;
+    private double _stackIconSize = 52;
     private WinForms.NotifyIcon? _notifyIcon;
     private HwndSource? _hwndSource;
     private bool _allowClose;
@@ -101,7 +116,10 @@ public partial class MainWindow : Window
     private bool _isApplyingSettings;
     private bool _isUpdatingFavoriteGroups;
     private bool _hotKeyRegistered;
+    private bool _allAppsLoaded;
     private bool _favoriteOrderChangedDuringDrag;
+    private bool _favoriteGroupOrderChangedDuringDrag;
+    private bool _folderOrderChangedDuringDrag;
     private IntPtr _keyboardHookHandle;
     private LowLevelKeyboardProc? _keyboardHookProc;
     private long _lastCtrlKeyDownTick;
@@ -110,8 +128,21 @@ public partial class MainWindow : Window
     private System.Windows.Point _favoriteDragStartPoint;
     private System.Windows.Point _favoriteDragPointerOffset;
     private System.Windows.Point _favoriteGroupDragStartPoint;
+    private System.Windows.Point _favoriteGroupDragPointerOffset;
+    private System.Windows.Point _folderDragStartPoint;
+    private System.Windows.Point _folderDragPointerOffset;
     private ListBoxItem? _draggedFavoriteContainer;
+    private ListBoxItem? _draggedFavoriteGroupContainer;
+    private ListBoxItem? _draggedFolderContainer;
+    private ListBoxItem? _animatedFavoriteGroupContainer;
+    private string? _activeFavoriteGroupDropTarget;
     private FavoriteDragPreviewWindow? _favoriteDragPreviewWindow;
+    private FavoriteDragPreviewWindow? _favoriteGroupDragPreviewWindow;
+    private FavoriteDragPreviewWindow? _folderDragPreviewWindow;
+    private Dictionary<string, Rect> _favoriteGroupDragSlotBounds = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, Rect> _folderDragSlotBounds = new(StringComparer.OrdinalIgnoreCase);
+    private int _favoriteGroupPreviewInsertionIndex = -1;
+    private int _folderPreviewInsertionIndex = -1;
 
     public MainWindow(bool startHidden = false)
     {
@@ -129,15 +160,30 @@ public partial class MainWindow : Window
         _favoriteItemsView.Filter = FilterFavorites;
         AllItemsList.ItemsSource = _allItemsView;
         FavoritesList.ItemsSource = _favoriteItemsView;
+        FolderItemsList.ItemsSource = _folders;
+        RecentItemsList.ItemsSource = _recentItems;
         FavoriteGroupList.ItemsSource = _favoriteGroups;
 
         SourceInitialized += MainWindow_SourceInitialized;
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
         StateChanged += MainWindow_StateChanged;
+        UpdateWindowControlState();
     }
 
-    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public double StackIconFrameSize => _stackIconSize;
+
+    public double StackIconImageSize => Math.Max(18, _stackIconSize - 8);
+
+    public double StackTileWidth => Math.Max(84, _stackIconSize + 40);
+
+    public double StackTileHeight => Math.Max(88, _stackIconSize + 46);
+
+    public double StackTileFontSize => _stackIconSize >= 64 ? 15 : _stackIconSize <= 48 ? 13 : 14;
+
+    private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
         InitializeTrayIcon();
         LoadSettings();
@@ -146,21 +192,37 @@ public partial class MainWindow : Window
             HideStartupWindow();
         }
 
-        await RefreshItemsAsync();
         if (!_startHidden)
         {
-            SearchBox.Focus();
+            FavoritesList.Focus();
         }
+
+        SetStatus("已加载堆栈。点击「全部应用」后再扫描应用。");
     }
 
-    private async void RefreshButton_Click(object sender, RoutedEventArgs e)
+    private void RecentFilesButton_Click(object sender, RoutedEventArgs e)
     {
-        await RefreshItemsAsync();
+        SettingsPopup.IsOpen = false;
+        AllAppsPopup.IsOpen = false;
+        RecentFilesPopup.IsOpen = true;
+        LoadRecentFiles();
     }
 
-    private void AddApplicationButton_Click(object sender, RoutedEventArgs e)
+    private async void AllAppsButton_Click(object sender, RoutedEventArgs e)
     {
-        AddExecutableOrShortcut();
+        SettingsPopup.IsOpen = false;
+        AllAppsPopup.IsOpen = true;
+        SearchBox.Focus();
+        SearchBox.SelectAll();
+
+        if (!_allAppsLoaded)
+        {
+            await RefreshItemsAsync();
+            return;
+        }
+
+        _allItemsView.Refresh();
+        SetStatus(BuildAllAppsDisplayStatus());
     }
 
     private void AddFileButton_Click(object sender, RoutedEventArgs e)
@@ -184,7 +246,8 @@ public partial class MainWindow : Window
 
         var name = new DirectoryInfo(dialog.SelectedPath).Name;
         var item = LaunchItem.Create(name, dialog.SelectedPath, LaunchItemKind.Folder, SourceManual);
-        AddManualItem(item);
+        item.IconPath = _iconCache.TryGetIconPath(item);
+        AddFolderStackItem(item, null);
     }
 
     private void AddSelectedButton_Click(object sender, RoutedEventArgs e)
@@ -274,11 +337,99 @@ public partial class MainWindow : Window
     private void FavoriteGroupList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         _favoriteGroupDragStartPoint = e.GetPosition(null);
+        _favoriteGroupDragPointerOffset = new System.Windows.Point(28, 17);
 
         if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { } listBoxItem)
         {
             listBoxItem.IsSelected = true;
+            _favoriteGroupDragPointerOffset = e.GetPosition(listBoxItem);
         }
+    }
+
+    private void FavoriteGroupList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { } listBoxItem &&
+            listBoxItem.DataContext is string groupName)
+        {
+            listBoxItem.IsSelected = true;
+            _activeFavoriteGroup = groupName;
+            _favoriteItemsView.Refresh();
+            UpdateFavoriteCount();
+        }
+    }
+
+    private void RenameFavoriteGroupMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemGroupName(sender) is not { } oldGroupName)
+        {
+            return;
+        }
+
+        if (string.Equals(oldGroupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus("「全部」是固定视图，不能重命名。");
+            return;
+        }
+
+        if (!ShowDisplayNameDialog(
+                oldGroupName,
+                out var inputGroupName,
+                "重命名分组",
+                "输入新的分组名称。"))
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(inputGroupName))
+        {
+            SetStatus("分组名称不能为空。");
+            return;
+        }
+
+        var newGroupName = NormalizeFavoriteGroupName(inputGroupName, null);
+
+        if (string.Equals(newGroupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus("不能使用「全部」作为分组名。");
+            return;
+        }
+
+        if (string.Equals(newGroupName, oldGroupName, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        if (_favoriteGroups.Any(groupName =>
+                !string.Equals(groupName, oldGroupName, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(groupName, newGroupName, StringComparison.OrdinalIgnoreCase)))
+        {
+            SetStatus($"已存在「{newGroupName}」分组。");
+            return;
+        }
+
+        RenameFavoriteGroup(oldGroupName, newGroupName);
+    }
+
+    private void DeleteFavoriteGroupMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemGroupName(sender) is not { } groupName)
+        {
+            return;
+        }
+
+        if (string.Equals(groupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus("「全部」是固定视图，不能删除。");
+            return;
+        }
+
+        if (string.Equals(groupName, DefaultFavoriteGroupName, StringComparison.OrdinalIgnoreCase))
+        {
+            SetStatus($"「{DefaultFavoriteGroupName}」是默认分组，不能删除。");
+            return;
+        }
+
+        DeleteFavoriteGroup(groupName);
     }
 
     private void FavoriteGroupList_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
@@ -302,29 +453,78 @@ public partial class MainWindow : Window
             return;
         }
 
-        var data = new System.Windows.DataObject();
-        data.SetData(FavoriteGroupDragDataFormat, groupName);
-        DragDrop.DoDragDrop(FavoriteGroupList, data, System.Windows.DragDropEffects.Move);
+        try
+        {
+            var data = new System.Windows.DataObject();
+            data.SetData(FavoriteGroupDragDataFormat, groupName);
+            _favoriteGroupOrderChangedDuringDrag = false;
+            _favoriteGroupPreviewInsertionIndex = -1;
+            _favoriteGroupDragSlotBounds = CaptureFavoriteGroupChipBounds();
+            Mouse.OverrideCursor = System.Windows.Input.Cursors.Hand;
+            HideOriginalFavoriteGroupDuringDrag(listBoxItem);
+            ShowFavoriteGroupDragPreview(groupName, listBoxItem);
+            DragDrop.DoDragDrop(FavoriteGroupList, data, System.Windows.DragDropEffects.Move);
+        }
+        finally
+        {
+            if (_favoriteGroupOrderChangedDuringDrag)
+            {
+                SaveSettings();
+                SetStatus("已更新分组顺序。");
+            }
+            else
+            {
+                SetStatus("未调整分组顺序。");
+            }
+
+            _favoriteGroupOrderChangedDuringDrag = false;
+            _favoriteGroupPreviewInsertionIndex = -1;
+            _favoriteGroupDragSlotBounds.Clear();
+            HideFavoriteGroupDragPreview();
+            RestoreOriginalFavoriteGroupAfterDrag();
+            ResetFavoriteGroupReorderPreview(false);
+            ResetFavoriteGroupDropTarget();
+            Mouse.OverrideCursor = null;
+        }
     }
 
     private void FavoriteGroupList_DragOver(object sender, System.Windows.DragEventArgs e)
     {
         if (e.Data.GetDataPresent(typeof(LaunchItem)))
         {
-            e.Effects = GetTargetFavoriteGroup(e) is null
+            var targetGroup = GetTargetFavoriteGroup(e);
+            e.Effects = targetGroup is null
                 ? System.Windows.DragDropEffects.None
                 : System.Windows.DragDropEffects.Move;
+            AnimateFavoriteGroupDropTarget(targetGroup);
         }
         else if (e.Data.GetDataPresent(FavoriteGroupDragDataFormat))
         {
             e.Effects = System.Windows.DragDropEffects.Move;
+            if (e.Data.GetData(FavoriteGroupDragDataFormat) is string draggedGroup)
+            {
+                UpdateFavoriteGroupReorderPreview(e, draggedGroup);
+            }
         }
         else
         {
             e.Effects = System.Windows.DragDropEffects.None;
+            ResetFavoriteGroupDropTarget();
         }
 
         e.Handled = true;
+    }
+
+    private void FavoriteGroupList_DragLeave(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(typeof(LaunchItem)))
+        {
+            ResetFavoriteGroupDropTarget();
+        }
+        else if (e.Data.GetDataPresent(FavoriteGroupDragDataFormat))
+        {
+            ResetFavoriteGroupReorderPreview(true);
+        }
     }
 
     private void FavoriteGroupList_Drop(object sender, System.Windows.DragEventArgs e)
@@ -334,15 +534,21 @@ public partial class MainWindow : Window
             if (GetTargetFavoriteGroup(e) is { } groupName)
             {
                 SetFavoriteGroup(item, groupName);
+                PlayFavoriteGroupAssignedAnimation(groupName);
             }
 
+            ResetFavoriteGroupDropTarget();
             e.Handled = true;
             return;
         }
 
         if (e.Data.GetData(FavoriteGroupDragDataFormat) is string draggedGroup)
         {
-            MoveFavoriteGroup(e, draggedGroup);
+            if (MoveFavoriteGroup(e, draggedGroup))
+            {
+                _favoriteGroupOrderChangedDuringDrag = true;
+            }
+
             e.Handled = true;
         }
     }
@@ -400,6 +606,68 @@ public partial class MainWindow : Window
             : $"已创建「{groupName}」分组。");
     }
 
+    private void RenameFavoriteGroup(string oldGroupName, string newGroupName)
+    {
+        foreach (var item in _favorites.Where(item =>
+                     string.Equals(
+                         NormalizeFavoriteGroupName(item.GroupName, item),
+                         oldGroupName,
+                         StringComparison.OrdinalIgnoreCase)))
+        {
+            item.GroupName = newGroupName;
+        }
+
+        var groups = NormalizeFavoriteGroups(_settings.FavoriteGroups).ToList();
+        var oldIndex = groups.FindIndex(groupName =>
+            string.Equals(groupName, oldGroupName, StringComparison.OrdinalIgnoreCase));
+        if (oldIndex >= 0)
+        {
+            groups[oldIndex] = newGroupName;
+        }
+        else
+        {
+            groups.Add(newGroupName);
+        }
+
+        _settings.FavoriteGroups = groups
+            .Where(groupName => !string.Equals(groupName, oldGroupName, StringComparison.OrdinalIgnoreCase))
+            .Append(newGroupName)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        _activeFavoriteGroup = newGroupName;
+        SaveSettings();
+        UpdateFavoriteGroups();
+        FavoriteGroupList.SelectedItem = newGroupName;
+        SetStatus($"已将「{oldGroupName}」重命名为「{newGroupName}」。");
+    }
+
+    private void DeleteFavoriteGroup(string groupName)
+    {
+        var movedCount = 0;
+        foreach (var item in _favorites.Where(item =>
+                     string.Equals(
+                         NormalizeFavoriteGroupName(item.GroupName, item),
+                         groupName,
+                         StringComparison.OrdinalIgnoreCase)))
+        {
+            item.GroupName = DefaultFavoriteGroupName;
+            movedCount++;
+        }
+
+        _settings.FavoriteGroups = NormalizeFavoriteGroups(_settings.FavoriteGroups)
+            .Where(current => !string.Equals(current, groupName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        _activeFavoriteGroup = movedCount > 0 ? DefaultFavoriteGroupName : AllFavoriteGroupsLabel;
+        SaveSettings();
+        UpdateFavoriteGroups();
+        FavoriteGroupList.SelectedItem = _activeFavoriteGroup;
+        SetStatus(movedCount > 0
+            ? $"已删除「{groupName}」分组，{movedCount} 个项目已移入「{DefaultFavoriteGroupName}」。"
+            : $"已删除「{groupName}」分组。");
+    }
+
     private void SearchToggleButton_Click(object sender, RoutedEventArgs e)
     {
         SearchBox.Focus();
@@ -412,6 +680,21 @@ public partial class MainWindow : Window
         SearchBox.SelectAll();
     }
 
+    private void CloseAllAppsPopupButton_Click(object sender, RoutedEventArgs e)
+    {
+        AllAppsPopup.IsOpen = false;
+    }
+
+    private void CloseRecentFilesPopupButton_Click(object sender, RoutedEventArgs e)
+    {
+        RecentFilesPopup.IsOpen = false;
+    }
+
+    private void ReloadRecentFilesButton_Click(object sender, RoutedEventArgs e)
+    {
+        LoadRecentFiles();
+    }
+
     private void EverythingButton_Click(object sender, RoutedEventArgs e)
     {
         OpenEverythingSearch(SearchBox.Text);
@@ -419,6 +702,8 @@ public partial class MainWindow : Window
 
     private void SettingsButton_Click(object sender, RoutedEventArgs e)
     {
+        AllAppsPopup.IsOpen = false;
+        RecentFilesPopup.IsOpen = false;
         SettingsPopup.IsOpen = !SettingsPopup.IsOpen;
     }
 
@@ -495,7 +780,9 @@ public partial class MainWindow : Window
         RebuildCompactAllItemFilter();
         _allItemsView.Refresh();
         SaveSettings();
-        SetStatus(BuildAllAppsDisplayStatus());
+        SetStatus(_allAppsLoaded
+            ? BuildAllAppsDisplayStatus()
+            : "全部应用筛选设置已保存，打开「全部应用」后生效。");
     }
 
     private void OpacitySlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
@@ -510,6 +797,18 @@ public partial class MainWindow : Window
         SaveSettings();
     }
 
+    private void StackIconSizeSlider_ValueChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        if (_isApplyingSettings || !IsLoaded)
+        {
+            return;
+        }
+
+        _settings.StackIconSize = StackIconSizeSlider.Value;
+        ApplyStackIconSize(_settings.StackIconSize);
+        SaveSettings();
+    }
+
     private void ThemeColorButton_Click(object sender, RoutedEventArgs e)
     {
         if (_isApplyingSettings || (sender as FrameworkElement)?.Tag is not string colorValue)
@@ -521,6 +820,19 @@ public partial class MainWindow : Window
         _settings.AccentColor = ColorToHex(accentColor);
         ApplyVisualSettings();
         SaveSettings();
+    }
+
+    private void ThemeModeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isApplyingSettings || ThemeModeComboBox.SelectedValue is not string themeMode)
+        {
+            return;
+        }
+
+        _settings.ThemeMode = NormalizeThemeMode(themeMode);
+        ApplyVisualSettings();
+        SaveSettings();
+        SetStatus($"已切换主题模式：{GetThemeModeLabel(_settings.ThemeMode)}。");
     }
 
     private void SaveHotKeyButton_Click(object sender, RoutedEventArgs e)
@@ -601,6 +913,19 @@ public partial class MainWindow : Window
         WindowState = WindowState == WindowState.Maximized
             ? WindowState.Normal
             : WindowState.Maximized;
+        UpdateWindowControlState();
+    }
+
+    private void UpdateWindowControlState()
+    {
+        if (MaximizeRestoreButton is null)
+        {
+            return;
+        }
+
+        var maximized = WindowState == WindowState.Maximized;
+        MaximizeRestoreButton.Content = maximized ? RestoreGlyph : MaximizeGlyph;
+        MaximizeRestoreButton.ToolTip = maximized ? "还原" : "最大化";
     }
 
     private void DragSurface_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
@@ -662,6 +987,114 @@ public partial class MainWindow : Window
         if (AllItemsList.SelectedItem is LaunchItem item)
         {
             AddFavorite(item);
+        }
+    }
+
+    private void RecentItemsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (RecentItemsList.SelectedItem is LaunchItem item)
+        {
+            OpenItem(item);
+        }
+    }
+
+    private void AddRecentFileButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is LaunchItem item)
+        {
+            AddFavorite(item);
+        }
+    }
+
+    private void FolderItemsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (FolderItemsList.SelectedItem is LaunchItem item)
+        {
+            OpenItem(item);
+        }
+    }
+
+    private void FolderItemsList_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _folderDragStartPoint = e.GetPosition(null);
+        _folderDragPointerOffset = new System.Windows.Point(180, 26);
+        _draggedFolderContainer = null;
+
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { } listBoxItem)
+        {
+            listBoxItem.IsSelected = true;
+            _folderDragPointerOffset = e.GetPosition(listBoxItem);
+        }
+    }
+
+    private void FolderItemsList_PreviewMouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+    {
+        if (e.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        var currentPosition = e.GetPosition(null);
+        if (Math.Abs(currentPosition.X - _folderDragStartPoint.X) < SystemParameters.MinimumHorizontalDragDistance &&
+            Math.Abs(currentPosition.Y - _folderDragStartPoint.Y) < SystemParameters.MinimumVerticalDragDistance)
+        {
+            return;
+        }
+
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not { } listBoxItem ||
+            listBoxItem.DataContext is not LaunchItem item)
+        {
+            return;
+        }
+
+        try
+        {
+            var data = new System.Windows.DataObject();
+            data.SetData(FolderStackDragDataFormat, item.Id);
+            _folderOrderChangedDuringDrag = false;
+            _folderPreviewInsertionIndex = -1;
+            _folderDragSlotBounds = CaptureFolderItemBounds();
+            Mouse.OverrideCursor = System.Windows.Input.Cursors.Hand;
+            HideOriginalFolderDuringDrag(listBoxItem);
+            ShowFolderDragPreview(item, listBoxItem);
+            DragDrop.DoDragDrop(FolderItemsList, data, System.Windows.DragDropEffects.Move);
+        }
+        finally
+        {
+            if (_folderOrderChangedDuringDrag)
+            {
+                SaveSettings();
+                SetStatus("已更新文件夹顺序。");
+            }
+            else
+            {
+                SetStatus("未调整文件夹顺序。");
+            }
+
+            _folderOrderChangedDuringDrag = false;
+            _folderPreviewInsertionIndex = -1;
+            _folderDragSlotBounds.Clear();
+            HideFolderDragPreview();
+            RestoreOriginalFolderAfterDrag();
+            ResetFolderReorderPreview(false);
+            Mouse.OverrideCursor = null;
+        }
+    }
+
+    private void OpenFolderItemButton_Click(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is LaunchItem item)
+        {
+            OpenItem(item);
+        }
+    }
+
+    private void FolderItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is LaunchItem item)
+        {
+            FolderItemsList.SelectedItem = item;
+            FolderItemsList.Focus();
         }
     }
 
@@ -775,11 +1208,89 @@ public partial class MainWindow : Window
         }
     }
 
+    private void FolderStack_DragOver(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(FolderStackDragDataFormat))
+        {
+            e.Effects = System.Windows.DragDropEffects.Move;
+            if (GetDraggedFolderItem(e) is { } draggedFolder)
+            {
+                UpdateFolderReorderPreview(e, draggedFolder);
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        e.Effects = CanAcceptFolderStackDrop(e)
+            ? System.Windows.DragDropEffects.Copy
+            : System.Windows.DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void FolderItemsList_DragLeave(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(FolderStackDragDataFormat))
+        {
+            ResetFolderReorderPreview(true);
+        }
+    }
+
+    private void FolderStack_Drop(object sender, System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetDataPresent(FolderStackDragDataFormat))
+        {
+            if (GetDraggedFolderItem(e) is { } draggedFolder &&
+                MoveFolderItem(e, draggedFolder))
+            {
+                _folderOrderChangedDuringDrag = true;
+            }
+
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Data.GetData(typeof(LaunchItem)) is LaunchItem item)
+        {
+            AddFavoriteToFolderStack(item);
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is string[] droppedPaths)
+        {
+            AddDroppedFoldersToFolderStack(droppedPaths);
+            e.Handled = true;
+        }
+    }
+
+    private void FolderItemsList_GiveFeedback(object sender, System.Windows.GiveFeedbackEventArgs e)
+    {
+        if (_folderDragPreviewWindow?.IsVisible == true)
+        {
+            UpdateFolderDragPreviewPosition();
+            e.UseDefaultCursors = false;
+            Mouse.SetCursor(System.Windows.Input.Cursors.Hand);
+            e.Handled = true;
+        }
+    }
+
     private void FavoritesList_GiveFeedback(object sender, System.Windows.GiveFeedbackEventArgs e)
     {
         if (_favoriteDragPreviewWindow?.IsVisible == true)
         {
             UpdateFavoriteDragPreviewPosition();
+            e.UseDefaultCursors = false;
+            Mouse.SetCursor(System.Windows.Input.Cursors.Hand);
+            e.Handled = true;
+        }
+    }
+
+    private void FavoriteGroupList_GiveFeedback(object sender, System.Windows.GiveFeedbackEventArgs e)
+    {
+        if (_favoriteGroupDragPreviewWindow?.IsVisible == true)
+        {
+            UpdateFavoriteGroupDragPreviewPosition();
             e.UseDefaultCursors = false;
             Mouse.SetCursor(System.Windows.Input.Cursors.Hand);
             e.Handled = true;
@@ -840,6 +1351,7 @@ public partial class MainWindow : Window
     private void AddDroppedPaths(IEnumerable<string> paths)
     {
         var addedCount = 0;
+        var addedFolderCount = 0;
         var skippedCount = 0;
         LaunchItem? lastAdded = null;
 
@@ -847,6 +1359,20 @@ public partial class MainWindow : Window
                      .Where(path => !string.IsNullOrWhiteSpace(path))
                      .Distinct(StringComparer.OrdinalIgnoreCase))
         {
+            if (TryCreateFolderStackItemFromPath(path, out var folderItem))
+            {
+                if (AddFolderStackItem(folderItem, null, false) is not null)
+                {
+                    addedFolderCount++;
+                }
+                else
+                {
+                    skippedCount++;
+                }
+
+                continue;
+            }
+
             var item = CreateDroppedItem(path);
             if (item is null)
             {
@@ -881,11 +1407,189 @@ public partial class MainWindow : Window
             UpdateFavoriteGroups();
         }
 
+        SetStatus((addedCount, addedFolderCount) switch
+        {
+            (> 0, > 0) => skippedCount > 0
+                ? $"已拖入 {addedCount} 个项目和 {addedFolderCount} 个文件夹，跳过 {skippedCount} 个重复或不可用项目。"
+                : $"已拖入 {addedCount} 个项目和 {addedFolderCount} 个文件夹。",
+            (> 0, 0) => skippedCount > 0
+                ? $"已拖入 {addedCount} 个项目，跳过 {skippedCount} 个重复或不可用项目。"
+                : $"已拖入 {addedCount} 个项目。",
+            (0, > 0) => skippedCount > 0
+                ? $"已加入 {addedFolderCount} 个文件夹，跳过 {skippedCount} 个重复或不可用项目。"
+                : $"已加入 {addedFolderCount} 个文件夹。",
+            _ => "拖入的项目已在堆栈中或不可用。"
+        });
+    }
+
+    private bool CanAcceptFolderStackDrop(System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetData(typeof(LaunchItem)) is LaunchItem item)
+        {
+            return TryCreateFolderStackItem(item, out _);
+        }
+
+        if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is not string[] droppedPaths)
+        {
+            return false;
+        }
+
+        return droppedPaths.Any(path => TryCreateFolderStackItemFromPath(path, out _));
+    }
+
+    private void AddFavoriteToFolderStack(LaunchItem item)
+    {
+        if (!TryCreateFolderStackItem(item, out var folderItem))
+        {
+            SetStatus($"只能拖入文件夹或指向文件夹的快捷方式：{item.Name}");
+            return;
+        }
+
+        AddFolderStackItem(folderItem, item);
+    }
+
+    private void AddDroppedFoldersToFolderStack(IEnumerable<string> paths)
+    {
+        var addedCount = 0;
+        var skippedCount = 0;
+        LaunchItem? lastAdded = null;
+
+        foreach (var path in paths
+                     .Where(path => !string.IsNullOrWhiteSpace(path))
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (!TryCreateFolderStackItemFromPath(path, out var folderItem))
+            {
+                skippedCount++;
+                continue;
+            }
+
+            if (AddFolderStackItem(folderItem, null, false) is { } added)
+            {
+                lastAdded = added;
+                addedCount++;
+            }
+            else
+            {
+                skippedCount++;
+            }
+        }
+
+        if (lastAdded is not null)
+        {
+            FolderItemsList.SelectedItem = lastAdded;
+        }
+
         SetStatus(addedCount > 0
             ? skippedCount > 0
-                ? $"已拖入 {addedCount} 个项目，跳过 {skippedCount} 个重复或不可用项目。"
-                : $"已拖入 {addedCount} 个项目。"
-            : "拖入的项目已在堆栈中或不可用。");
+                ? $"已加入 {addedCount} 个文件夹，跳过 {skippedCount} 个不可用或重复项目。"
+                : $"已加入 {addedCount} 个文件夹。"
+            : "拖入的项目不是文件夹，或已在文件夹堆栈中。");
+    }
+
+    private LaunchItem? AddFolderStackItem(LaunchItem folderItem, LaunchItem? draggedFavorite, bool showStatus = true)
+    {
+        var duplicate = _folders.FirstOrDefault(existing =>
+            string.Equals(NormalizePathKey(existing.Path), NormalizePathKey(folderItem.Path), StringComparison.OrdinalIgnoreCase));
+        if (duplicate is not null)
+        {
+            FolderItemsList.SelectedItem = duplicate;
+            if (showStatus)
+            {
+                SetStatus($"已在文件夹堆栈中：{duplicate.DisplayTitle}");
+            }
+
+            return null;
+        }
+
+        LaunchItem favorite;
+        if (draggedFavorite is not null && _favorites.Contains(draggedFavorite))
+        {
+            folderItem.DisplayName = draggedFavorite.DisplayName;
+            _favorites.Remove(draggedFavorite);
+            folderItem.GroupName = string.Empty;
+            _folders.Add(folderItem);
+            favorite = folderItem;
+        }
+        else
+        {
+            folderItem.GroupName = string.Empty;
+            _folders.Add(folderItem);
+            favorite = folderItem;
+        }
+
+        AddOrReplaceAllItem(favorite.Clone());
+        SaveSettings();
+        UpdateFavoriteGroups();
+        UpdateFolderItems();
+        _favoriteItemsView.Refresh();
+        FolderItemsList.SelectedItem = favorite;
+        if (showStatus)
+        {
+            SetStatus($"已加入文件夹堆栈：{favorite.DisplayTitle}");
+        }
+
+        return favorite;
+    }
+
+    private bool TryCreateFolderStackItem(LaunchItem item, out LaunchItem folderItem)
+    {
+        folderItem = item;
+        if (item.Kind == LaunchItemKind.Folder && Directory.Exists(item.Path))
+        {
+            folderItem = item.Clone();
+            folderItem.IconPath = _iconCache.TryGetIconPath(folderItem);
+            return true;
+        }
+
+        return TryCreateFolderStackItemFromPath(item.Path, out folderItem);
+    }
+
+    private bool TryCreateFolderStackItemFromPath(string path, out LaunchItem folderItem)
+    {
+        folderItem = new LaunchItem();
+        var folderPath = ResolveFolderPath(path);
+        if (folderPath is null)
+        {
+            return false;
+        }
+
+        var name = new DirectoryInfo(folderPath).Name;
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            name = folderPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+
+        folderItem = LaunchItem.Create(name, folderPath, LaunchItemKind.Folder, SourceDragDrop);
+        folderItem.IconPath = _iconCache.TryGetIconPath(folderItem);
+        return true;
+    }
+
+    private static string? ResolveFolderPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return null;
+        }
+
+        var expandedPath = Environment.ExpandEnvironmentVariables(path);
+        if (Directory.Exists(expandedPath))
+        {
+            return expandedPath;
+        }
+
+        if (File.Exists(expandedPath) &&
+            string.Equals(Path.GetExtension(expandedPath), ".lnk", StringComparison.OrdinalIgnoreCase) &&
+            TryResolveShortcutTarget(expandedPath) is { } targetPath)
+        {
+            var expandedTargetPath = Environment.ExpandEnvironmentVariables(targetPath);
+            if (Directory.Exists(expandedTargetPath))
+            {
+                return expandedTargetPath;
+            }
+        }
+
+        return null;
     }
 
     private LaunchItem? CreateDroppedItem(string path)
@@ -1055,6 +1759,247 @@ public partial class MainWindow : Window
         _favoriteDragPreviewWindow = null;
     }
 
+    private void HideOriginalFavoriteGroupDuringDrag(ListBoxItem container)
+    {
+        _draggedFavoriteGroupContainer = container;
+        _draggedFavoriteGroupContainer.Opacity = 0;
+    }
+
+    private void RestoreOriginalFavoriteGroupAfterDrag()
+    {
+        if (_draggedFavoriteGroupContainer is not null)
+        {
+            _draggedFavoriteGroupContainer.Opacity = 1;
+            _draggedFavoriteGroupContainer = null;
+        }
+    }
+
+    private void ShowFavoriteGroupDragPreview(string groupName, ListBoxItem sourceContainer)
+    {
+        HideFavoriteGroupDragPreview();
+        _favoriteGroupDragPreviewWindow = new FavoriteDragPreviewWindow(
+            CreateFavoriteGroupDragPreview(groupName, sourceContainer))
+        {
+            Owner = this
+        };
+        MoveFavoriteGroupDragPreviewToCursor();
+        _favoriteGroupDragPreviewWindow.Show();
+        _favoriteGroupDragPreviewWindow.PlayShowAnimation();
+    }
+
+    private FrameworkElement CreateFavoriteGroupDragPreview(string groupName, ListBoxItem sourceContainer)
+    {
+        var width = Math.Max(54, sourceContainer.ActualWidth);
+        var height = Math.Max(34, sourceContainer.ActualHeight);
+        var root = new Border
+        {
+            MinWidth = width,
+            Height = height,
+            Padding = new Thickness(14, 0, 14, 0),
+            CornerRadius = new CornerRadius(height / 2),
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(248, 17, 24, 39)),
+            BorderBrush = Resources["BlueBrush"] as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Transparent,
+            BorderThickness = new Thickness(1),
+            Effect = Resources["SoftShadow"] as System.Windows.Media.Effects.Effect
+        };
+
+        root.Child = new TextBlock
+        {
+            Text = groupName,
+            Foreground = System.Windows.Media.Brushes.White,
+            FontSize = 13,
+            FontWeight = FontWeights.SemiBold,
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+
+        return root;
+    }
+
+    private void UpdateFavoriteGroupDragPreviewPosition()
+    {
+        if (_favoriteGroupDragPreviewWindow?.IsVisible != true)
+        {
+            return;
+        }
+
+        MoveFavoriteGroupDragPreviewToCursor();
+    }
+
+    private void MoveFavoriteGroupDragPreviewToCursor()
+    {
+        if (_favoriteGroupDragPreviewWindow is null || !GetCursorPos(out var point))
+        {
+            return;
+        }
+
+        var screenPoint = new System.Windows.Point(point.X, point.Y);
+        if (PresentationSource.FromVisual(this)?.CompositionTarget is { } target)
+        {
+            screenPoint = target.TransformFromDevice.Transform(screenPoint);
+        }
+
+        _favoriteGroupDragPreviewWindow.MoveWithCursorOffset(
+            screenPoint.X,
+            screenPoint.Y,
+            _favoriteGroupDragPointerOffset.X,
+            _favoriteGroupDragPointerOffset.Y);
+    }
+
+    private void HideFavoriteGroupDragPreview()
+    {
+        if (_favoriteGroupDragPreviewWindow is null)
+        {
+            return;
+        }
+
+        _favoriteGroupDragPreviewWindow.Close();
+        _favoriteGroupDragPreviewWindow = null;
+    }
+
+    private void HideOriginalFolderDuringDrag(ListBoxItem listBoxItem)
+    {
+        RestoreOriginalFolderAfterDrag();
+        _draggedFolderContainer = listBoxItem;
+        _draggedFolderContainer.Opacity = 0;
+    }
+
+    private void RestoreOriginalFolderAfterDrag()
+    {
+        if (_draggedFolderContainer is null)
+        {
+            return;
+        }
+
+        _draggedFolderContainer.Opacity = 1;
+        _draggedFolderContainer = null;
+    }
+
+    private void ShowFolderDragPreview(LaunchItem item, ListBoxItem sourceContainer)
+    {
+        HideFolderDragPreview();
+        _folderDragPreviewWindow = new FavoriteDragPreviewWindow(CreateFolderDragPreview(item, sourceContainer))
+        {
+            Owner = this
+        };
+        MoveFolderDragPreviewToCursor();
+        _folderDragPreviewWindow.Show();
+        _folderDragPreviewWindow.PlayShowAnimation();
+    }
+
+    private FrameworkElement CreateFolderDragPreview(LaunchItem item, ListBoxItem sourceContainer)
+    {
+        var width = Math.Max(260, sourceContainer.ActualWidth);
+        var height = Math.Max(56, sourceContainer.ActualHeight);
+        var root = new Border
+        {
+            Width = width,
+            MinHeight = height,
+            Padding = new Thickness(8, 6, 10, 6),
+            CornerRadius = new CornerRadius(14),
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(248, 231, 240, 255)),
+            BorderBrush = Resources["ToolbarBorderBrush"] as System.Windows.Media.Brush ?? System.Windows.Media.Brushes.Transparent,
+            BorderThickness = new Thickness(1),
+            Effect = Resources["SoftShadow"] as System.Windows.Media.Effects.Effect
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(42) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+
+        var iconFrame = new Border
+        {
+            Width = 32,
+            Height = 32,
+            CornerRadius = new CornerRadius(8),
+            Background = Resources["InputBrush"] as System.Windows.Media.Brush,
+            BorderBrush = Resources["ToolbarBorderBrush"] as System.Windows.Media.Brush,
+            BorderThickness = new Thickness(1),
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        if (TryCreateBitmapImage(item.IconPath) is { } iconSource)
+        {
+            iconFrame.Child = new System.Windows.Controls.Image
+            {
+                Source = iconSource,
+                Width = 26,
+                Height = 26,
+                Stretch = Stretch.Uniform
+            };
+        }
+
+        var textPanel = new StackPanel
+        {
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(6, 0, 0, 0)
+        };
+        Grid.SetColumn(textPanel, 1);
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = item.DisplayTitle,
+            FontWeight = FontWeights.SemiBold,
+            FontSize = 14,
+            Foreground = Resources["TextBrush"] as System.Windows.Media.Brush,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textPanel.Children.Add(new TextBlock
+        {
+            Text = item.Path,
+            Foreground = Resources["SubTextBrush"] as System.Windows.Media.Brush,
+            FontSize = 12,
+            Margin = new Thickness(0, 1, 0, 0),
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        grid.Children.Add(iconFrame);
+        grid.Children.Add(textPanel);
+        root.Child = grid;
+        return root;
+    }
+
+    private void UpdateFolderDragPreviewPosition()
+    {
+        if (_folderDragPreviewWindow?.IsVisible != true)
+        {
+            return;
+        }
+
+        MoveFolderDragPreviewToCursor();
+    }
+
+    private void MoveFolderDragPreviewToCursor()
+    {
+        if (_folderDragPreviewWindow is null || !GetCursorPos(out var point))
+        {
+            return;
+        }
+
+        var screenPoint = new System.Windows.Point(point.X, point.Y);
+        if (PresentationSource.FromVisual(this)?.CompositionTarget is { } target)
+        {
+            screenPoint = target.TransformFromDevice.Transform(screenPoint);
+        }
+
+        _folderDragPreviewWindow.MoveWithCursorOffset(
+            screenPoint.X,
+            screenPoint.Y,
+            _folderDragPointerOffset.X,
+            _folderDragPointerOffset.Y);
+    }
+
+    private void HideFolderDragPreview()
+    {
+        if (_folderDragPreviewWindow is null)
+        {
+            return;
+        }
+
+        _folderDragPreviewWindow.Close();
+        _folderDragPreviewWindow = null;
+    }
+
     private static BitmapImage? TryCreateBitmapImage(string? path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
@@ -1122,11 +2067,108 @@ public partial class MainWindow : Window
         SetStatus($"已复制路径：{item.Name}");
     }
 
+    private void EditFavoriteDisplayNameMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is not LaunchItem item)
+        {
+            return;
+        }
+
+        var currentValue = string.IsNullOrWhiteSpace(item.DisplayName) ? item.Name : item.DisplayName;
+        if (ShowDisplayNameDialog(currentValue, out var displayName))
+        {
+            item.DisplayName = displayName;
+            SaveSettings();
+            SetStatus(string.IsNullOrWhiteSpace(item.DisplayName)
+                ? $"已恢复原名：{item.Name}"
+                : $"已更新备注：{item.DisplayTitle}");
+        }
+    }
+
+    private void ClearFavoriteDisplayNameMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is not LaunchItem item)
+        {
+            return;
+        }
+
+        item.DisplayName = null;
+        SaveSettings();
+        SetStatus($"已恢复原名：{item.Name}");
+    }
+
     private void RemoveFavoriteMenuItem_Click(object sender, RoutedEventArgs e)
     {
         if (GetMenuItemLaunchItem(sender) is LaunchItem item)
         {
             RemoveFavorite(item);
+        }
+    }
+
+    private void OpenFolderMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is LaunchItem item)
+        {
+            OpenItem(item);
+        }
+    }
+
+    private void OpenFolderLocationMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is LaunchItem item)
+        {
+            OpenItemLocation(item);
+        }
+    }
+
+    private void CopyFolderPathMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is not LaunchItem item)
+        {
+            return;
+        }
+
+        System.Windows.Clipboard.SetText(ToShellPath(item.Path));
+        SetStatus($"已复制路径：{item.DisplayTitle}");
+    }
+
+    private void EditFolderDisplayNameMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is not LaunchItem item)
+        {
+            return;
+        }
+
+        var currentValue = string.IsNullOrWhiteSpace(item.DisplayName) ? item.Name : item.DisplayName;
+        if (ShowDisplayNameDialog(currentValue, out var displayName))
+        {
+            item.DisplayName = displayName;
+            SaveSettings();
+            FolderItemsList.Items.Refresh();
+            SetStatus(string.IsNullOrWhiteSpace(item.DisplayName)
+                ? $"已恢复原名：{item.Name}"
+                : $"已更新备注：{item.DisplayTitle}");
+        }
+    }
+
+    private void ClearFolderDisplayNameMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is not LaunchItem item)
+        {
+            return;
+        }
+
+        item.DisplayName = null;
+        SaveSettings();
+        FolderItemsList.Items.Refresh();
+        SetStatus($"已恢复原名：{item.Name}");
+    }
+
+    private void RemoveFolderMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is LaunchItem item)
+        {
+            RemoveFolderItem(item);
         }
     }
 
@@ -1154,6 +2196,7 @@ public partial class MainWindow : Window
 
             RebuildCompactAllItemFilter();
             _allItemsView.Refresh();
+            _allAppsLoaded = true;
             SetStatus(BuildAllAppsScanStatus());
         }
         catch (Exception ex)
@@ -1171,6 +2214,7 @@ public partial class MainWindow : Window
     private void LoadSettings()
     {
         _settings = _settingsStore.Load();
+        _settings.ThemeMode = NormalizeThemeMode(_settings.ThemeMode);
         _settings.FavoriteGroups = NormalizeFavoriteGroups(_settings.FavoriteGroups).ToList();
         if (!_settings.ShowStartMenuItems && !_settings.ShowRegistryItems && !_settings.ShowAppsFolderItems)
         {
@@ -1180,19 +2224,39 @@ public partial class MainWindow : Window
         }
 
         _favorites.Clear();
+        _folders.Clear();
 
         foreach (var item in _settings.Favorites)
         {
-            item.GroupName = NormalizeFavoriteGroupName(item.GroupName, item);
-            item.IconPath = _iconCache.TryGetIconPath(item);
+            PrepareStoredItem(item);
+            if (item.Kind == LaunchItemKind.Folder)
+            {
+                AddStoredFolder(item);
+                continue;
+            }
+
             _favorites.Add(item);
         }
 
+        foreach (var item in _settings.Folders)
+        {
+            PrepareStoredItem(item);
+            if (item.Kind == LaunchItemKind.Folder)
+            {
+                AddStoredFolder(item);
+            }
+        }
+
         DeduplicateFavorites();
+        DeduplicateFolders();
+        UpdateFolderItems();
 
         _isApplyingSettings = true;
+        ThemeModeComboBox.SelectedValue = _settings.ThemeMode;
         GlassToggle.IsChecked = _settings.UseGlass;
         OpacitySlider.Value = Math.Clamp(_settings.GlassOpacity, OpacitySlider.Minimum, OpacitySlider.Maximum);
+        ApplyStackIconSize(_settings.StackIconSize);
+        StackIconSizeSlider.Value = _stackIconSize;
         CompactAllAppsToggle.IsChecked = _settings.CompactAllApps;
         HideShortcutItemsToggle.IsChecked = _settings.HideShortcutItems;
         ShowStartMenuToggle.IsChecked = _settings.ShowStartMenuItems;
@@ -1235,13 +2299,84 @@ public partial class MainWindow : Window
 
     private void SaveSettings()
     {
-        _settings.Favorites = _favorites.Select(item => item.Clone()).ToList();
+        _settings.Favorites = _favorites
+            .Where(item => item.Kind != LaunchItemKind.Folder)
+            .Select(item => item.Clone())
+            .ToList();
+        _settings.Folders = _folders.Select(item => item.Clone()).ToList();
         _settingsStore.Save(_settings);
+    }
+
+    private void PrepareStoredItem(LaunchItem item)
+    {
+        item.GroupName = NormalizeFavoriteGroupName(item.GroupName, item);
+        item.IconPath = _iconCache.TryGetIconPath(item);
+    }
+
+    private void AddStoredFolder(LaunchItem item)
+    {
+        if (string.IsNullOrWhiteSpace(item.Path) ||
+            _folders.Any(existing => string.Equals(
+                NormalizePathKey(existing.Path),
+                NormalizePathKey(item.Path),
+                StringComparison.OrdinalIgnoreCase)))
+        {
+            return;
+        }
+
+        item.GroupName = string.Empty;
+        _folders.Add(item);
+    }
+
+    private void DeduplicateFolders()
+    {
+        var deduplicated = _folders
+            .GroupBy(item => NormalizePathKey(item.Path), StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.First())
+            .ToList();
+
+        if (deduplicated.Count == _folders.Count)
+        {
+            return;
+        }
+
+        _folders.Clear();
+        foreach (var item in deduplicated)
+        {
+            _folders.Add(item);
+        }
+    }
+
+    private void ApplyStackIconSize(double value)
+    {
+        _stackIconSize = Math.Clamp(Math.Round(value), 30, 70);
+        _settings.StackIconSize = _stackIconSize;
+
+        if (StackIconSizeValueText is not null)
+        {
+            StackIconSizeValueText.Text = $"{_stackIconSize:0}px";
+        }
+
+        NotifyStackIconSizeChanged();
+    }
+
+    private void NotifyStackIconSizeChanged()
+    {
+        OnPropertyChanged(nameof(StackIconFrameSize));
+        OnPropertyChanged(nameof(StackIconImageSize));
+        OnPropertyChanged(nameof(StackTileWidth));
+        OnPropertyChanged(nameof(StackTileHeight));
+        OnPropertyChanged(nameof(StackTileFontSize));
     }
 
     private bool FilterFavorites(object value)
     {
         if (value is not LaunchItem item)
+        {
+            return false;
+        }
+
+        if (item.Kind == LaunchItemKind.Folder)
         {
             return false;
         }
@@ -1608,6 +2743,12 @@ public partial class MainWindow : Window
 
     private void AddManualItem(LaunchItem item)
     {
+        if (TryCreateFolderStackItem(item, out var folderItem))
+        {
+            AddFolderStackItem(folderItem, null);
+            return;
+        }
+
         item.IconPath = _iconCache.TryGetIconPath(item);
         AddOrReplaceAllItem(item);
         AddFavorite(item);
@@ -1615,6 +2756,12 @@ public partial class MainWindow : Window
 
     private void AddFavorite(LaunchItem item)
     {
+        if (TryCreateFolderStackItem(item, out var folderItem))
+        {
+            AddFolderStackItem(folderItem, null);
+            return;
+        }
+
         if (FindDuplicateFavorite(item) is { } duplicate)
         {
             SetStatus($"已在堆栈中：{duplicate.Name}");
@@ -1627,6 +2774,7 @@ public partial class MainWindow : Window
         FavoritesList.SelectedItem = favorite;
         SaveSettings();
         UpdateFavoriteGroups();
+        UpdateFolderItems();
         SetStatus($"已加入「{favorite.GroupName}」：{item.Name}");
     }
 
@@ -1724,6 +2872,7 @@ public partial class MainWindow : Window
         _favorites.RemoveAt(index);
         SaveSettings();
         UpdateFavoriteGroups();
+        UpdateFolderItems();
 
         var visibleFavorites = GetVisibleFavorites();
         if (visibleFavorites.Count > 0)
@@ -1732,6 +2881,251 @@ public partial class MainWindow : Window
         }
 
         SetStatus($"已移除：{item.Name}");
+    }
+
+    private void RemoveFolderItem(LaunchItem item)
+    {
+        var index = _folders.IndexOf(item);
+        if (index < 0)
+        {
+            return;
+        }
+
+        _folders.RemoveAt(index);
+        SaveSettings();
+        UpdateFolderItems();
+
+        if (_folders.Count > 0)
+        {
+            FolderItemsList.SelectedItem = _folders[Math.Min(index, _folders.Count - 1)];
+        }
+
+        SetStatus($"已移除文件夹：{item.DisplayTitle}");
+    }
+
+    private LaunchItem? GetDraggedFolderItem(System.Windows.DragEventArgs e)
+    {
+        if (e.Data.GetData(FolderStackDragDataFormat) is not string draggedId ||
+            string.IsNullOrWhiteSpace(draggedId))
+        {
+            return null;
+        }
+
+        return _folders.FirstOrDefault(item => string.Equals(item.Id, draggedId, StringComparison.Ordinal));
+    }
+
+    private bool MoveFolderItem(System.Windows.DragEventArgs e, LaunchItem draggedFolder)
+    {
+        var oldIndex = _folders.IndexOf(draggedFolder);
+        if (oldIndex < 0)
+        {
+            return false;
+        }
+
+        var insertionIndex = GetFolderDropIndex(e, draggedFolder);
+        if (insertionIndex < 0 || insertionIndex == oldIndex)
+        {
+            return false;
+        }
+
+        ResetFolderReorderPreview(false);
+        _folders.RemoveAt(oldIndex);
+        insertionIndex = Math.Clamp(insertionIndex, 0, _folders.Count);
+        _folders.Insert(insertionIndex, draggedFolder);
+        FolderItemsList.SelectedItem = draggedFolder;
+        UpdateFolderItems();
+        return true;
+    }
+
+    private void UpdateFolderReorderPreview(System.Windows.DragEventArgs e, LaunchItem draggedFolder)
+    {
+        UpdateFolderDragPreviewPosition();
+
+        var oldIndex = _folders.IndexOf(draggedFolder);
+        if (oldIndex < 0)
+        {
+            ResetFolderReorderPreview(true);
+            return;
+        }
+
+        var insertionIndex = GetFolderDropIndex(e, draggedFolder);
+        if (insertionIndex < 0)
+        {
+            ResetFolderReorderPreview(true);
+            return;
+        }
+
+        if (_folderPreviewInsertionIndex != insertionIndex)
+        {
+            _folderPreviewInsertionIndex = insertionIndex;
+            ApplyFolderReorderPreview(draggedFolder, insertionIndex);
+        }
+
+        SetStatus(insertionIndex == oldIndex
+            ? "拖动文件夹调整顺序。"
+            : "松开后调整文件夹顺序。");
+    }
+
+    private int GetFolderDropIndex(System.Windows.DragEventArgs e, LaunchItem draggedFolder)
+    {
+        var oldIndex = _folders.IndexOf(draggedFolder);
+        if (oldIndex < 0)
+        {
+            return -1;
+        }
+
+        var remainingFolders = _folders
+            .Where(item => !string.Equals(item.Id, draggedFolder.Id, StringComparison.Ordinal))
+            .ToList();
+        if (remainingFolders.Count == 0)
+        {
+            return oldIndex;
+        }
+
+        var pointer = e.GetPosition(FolderItemsList);
+        var slotRects = _folderDragSlotBounds.Count > 0
+            ? _folderDragSlotBounds
+            : CaptureFolderItemBounds();
+        var insertionIndex = remainingFolders.Count;
+        for (var i = 0; i < remainingFolders.Count; i++)
+        {
+            var item = remainingFolders[i];
+            if (!slotRects.TryGetValue(item.Id, out var rect) ||
+                rect.Height <= 0)
+            {
+                continue;
+            }
+
+            var centerY = rect.Top + rect.Height / 2;
+            if (pointer.Y < centerY)
+            {
+                insertionIndex = i;
+                break;
+            }
+        }
+
+        return Math.Clamp(insertionIndex, 0, _folders.Count - 1);
+    }
+
+    private void ApplyFolderReorderPreview(LaunchItem draggedFolder, int insertionIndex)
+    {
+        var slotRects = _folderDragSlotBounds.Count > 0
+            ? _folderDragSlotBounds
+            : CaptureFolderItemBounds();
+        if (slotRects.Count == 0)
+        {
+            return;
+        }
+
+        var remainingFolders = _folders
+            .Where(item => !string.Equals(item.Id, draggedFolder.Id, StringComparison.Ordinal))
+            .ToList();
+        insertionIndex = Math.Clamp(insertionIndex, 0, remainingFolders.Count);
+        var finalOrder = remainingFolders.ToList();
+        finalOrder.Insert(insertionIndex, draggedFolder);
+
+        for (var originalIndex = 0; originalIndex < _folders.Count; originalIndex++)
+        {
+            var item = _folders[originalIndex];
+            if (string.Equals(item.Id, draggedFolder.Id, StringComparison.Ordinal))
+            {
+                AnimateFolderPreviewOffset(item, 0);
+                continue;
+            }
+
+            var finalIndex = finalOrder.FindIndex(candidate =>
+                string.Equals(candidate.Id, item.Id, StringComparison.Ordinal));
+            if (finalIndex < 0 ||
+                finalIndex >= _folders.Count ||
+                !slotRects.TryGetValue(item.Id, out var currentRect) ||
+                !slotRects.TryGetValue(_folders[finalIndex].Id, out var targetRect))
+            {
+                continue;
+            }
+
+            AnimateFolderPreviewOffset(item, targetRect.Top - currentRect.Top);
+        }
+    }
+
+    private void AnimateFolderPreviewOffset(LaunchItem item, double offsetY)
+    {
+        if (FolderItemsList.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container)
+        {
+            return;
+        }
+
+        var transforms = EnsureGroupChipTransform(container);
+        transforms.Translate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+        {
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(120),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+        transforms.Translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation
+        {
+            To = offsetY,
+            Duration = TimeSpan.FromMilliseconds(120),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+    }
+
+    private void ResetFolderReorderPreview(bool animate)
+    {
+        foreach (var item in _folders)
+        {
+            if (FolderItemsList.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container ||
+                !TryGetGroupChipTransforms(container, out _, out var translate))
+            {
+                continue;
+            }
+
+            if (animate)
+            {
+                translate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+                {
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(120),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+                translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation
+                {
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(120),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+            }
+            else
+            {
+                translate.BeginAnimation(TranslateTransform.XProperty, null);
+                translate.BeginAnimation(TranslateTransform.YProperty, null);
+                translate.X = 0;
+                translate.Y = 0;
+            }
+        }
+
+        _folderPreviewInsertionIndex = -1;
+    }
+
+    private Dictionary<string, Rect> CaptureFolderItemBounds()
+    {
+        var bounds = new Dictionary<string, Rect>(StringComparer.Ordinal);
+        FolderItemsList.UpdateLayout();
+
+        foreach (var item in _folders)
+        {
+            if (FolderItemsList.ItemContainerGenerator.ContainerFromItem(item) is not ListBoxItem container ||
+                container.ActualWidth <= 0 ||
+                container.ActualHeight <= 0)
+            {
+                continue;
+            }
+
+            var position = container.TransformToAncestor(FolderItemsList)
+                .Transform(new System.Windows.Point(0, 0));
+            bounds[item.Id] = new Rect(position, new System.Windows.Size(container.ActualWidth, container.ActualHeight));
+        }
+
+        return bounds;
     }
 
     private void SetFavoriteGroup(LaunchItem item, string groupName)
@@ -1764,12 +3158,12 @@ public partial class MainWindow : Window
         return groupName;
     }
 
-    private void MoveFavoriteGroup(System.Windows.DragEventArgs e, string draggedGroup)
+    private bool MoveFavoriteGroup(System.Windows.DragEventArgs e, string draggedGroup)
     {
         if (string.IsNullOrWhiteSpace(draggedGroup) ||
             string.Equals(draggedGroup, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return false;
         }
 
         var groups = _favoriteGroups
@@ -1780,26 +3174,59 @@ public partial class MainWindow : Window
             string.Equals(groupName, draggedGroup, StringComparison.OrdinalIgnoreCase));
         if (oldIndex < 0)
         {
-            return;
+            return false;
         }
 
-        var targetIndex = GetFavoriteGroupDropIndex(e, groups, draggedGroup, oldIndex);
-        if (targetIndex < 0 || targetIndex == oldIndex)
+        var insertionIndex = GetFavoriteGroupDropIndex(e, groups, draggedGroup, oldIndex);
+        if (insertionIndex < 0 || insertionIndex == oldIndex)
         {
-            return;
+            return false;
         }
 
         var movedGroup = groups[oldIndex];
         groups.RemoveAt(oldIndex);
-        targetIndex = Math.Clamp(targetIndex, 0, groups.Count);
-        groups.Insert(targetIndex, movedGroup);
+        insertionIndex = Math.Clamp(insertionIndex, 0, groups.Count);
+        groups.Insert(insertionIndex, movedGroup);
 
+        ResetFavoriteGroupReorderPreview(false);
         _settings.FavoriteGroups = groups;
         _activeFavoriteGroup = movedGroup;
-        SaveSettings();
         UpdateFavoriteGroups();
         FavoriteGroupList.SelectedItem = movedGroup;
-        SetStatus("已更新分组顺序。");
+        return true;
+    }
+
+    private void UpdateFavoriteGroupReorderPreview(System.Windows.DragEventArgs e, string draggedGroup)
+    {
+        UpdateFavoriteGroupDragPreviewPosition();
+
+        var groups = _favoriteGroups
+            .Where(groupName => !string.Equals(groupName, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var oldIndex = groups.FindIndex(groupName =>
+            string.Equals(groupName, draggedGroup, StringComparison.OrdinalIgnoreCase));
+        if (oldIndex < 0)
+        {
+            ResetFavoriteGroupReorderPreview(true);
+            return;
+        }
+
+        var insertionIndex = GetFavoriteGroupDropIndex(e, groups, draggedGroup, oldIndex);
+        if (insertionIndex < 0)
+        {
+            ResetFavoriteGroupReorderPreview(true);
+            return;
+        }
+
+        if (_favoriteGroupPreviewInsertionIndex != insertionIndex)
+        {
+            _favoriteGroupPreviewInsertionIndex = insertionIndex;
+            ApplyFavoriteGroupReorderPreview(groups, draggedGroup, insertionIndex);
+        }
+
+        SetStatus(insertionIndex == oldIndex
+            ? "拖动分组调整顺序。"
+            : "松开后调整分组顺序。");
     }
 
     private int GetFavoriteGroupDropIndex(
@@ -1808,36 +3235,381 @@ public partial class MainWindow : Window
         string draggedGroup,
         int oldIndex)
     {
-        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is not { } targetItem ||
-            targetItem.DataContext is not string targetGroup)
-        {
-            return groups.Count - 1;
-        }
-
-        var targetIndex = string.Equals(targetGroup, AllFavoriteGroupsLabel, StringComparison.OrdinalIgnoreCase)
-            ? 0
-            : groups.ToList().FindIndex(groupName =>
-                string.Equals(groupName, targetGroup, StringComparison.OrdinalIgnoreCase));
-
-        if (targetIndex < 0 ||
-            string.Equals(targetGroup, draggedGroup, StringComparison.OrdinalIgnoreCase))
+        var remainingGroups = groups
+            .Where(groupName => !string.Equals(groupName, draggedGroup, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (remainingGroups.Count == 0)
         {
             return oldIndex;
         }
 
-        var position = e.GetPosition(targetItem);
-        if (position.X > targetItem.ActualWidth / 2)
+        var pointer = e.GetPosition(FavoriteGroupList);
+        var slotRects = _favoriteGroupDragSlotBounds.Count > 0
+            ? _favoriteGroupDragSlotBounds
+            : CaptureFavoriteGroupChipBounds();
+        var insertionIndex = remainingGroups.Count;
+        for (var i = 0; i < remainingGroups.Count; i++)
         {
-            targetIndex++;
+            var groupName = remainingGroups[i];
+            if (!slotRects.TryGetValue(groupName, out var rect) ||
+                rect.Width <= 0)
+            {
+                continue;
+            }
+
+            var centerX = rect.Left + rect.Width / 2;
+            if (pointer.X < centerX)
+            {
+                insertionIndex = i;
+                break;
+            }
         }
 
-        if (oldIndex < targetIndex)
-        {
-            targetIndex--;
-        }
-
-        return Math.Clamp(targetIndex, 0, groups.Count - 1);
+        return Math.Clamp(insertionIndex, 0, groups.Count - 1);
     }
+
+    private void ApplyFavoriteGroupReorderPreview(
+        IReadOnlyList<string> groups,
+        string draggedGroup,
+        int insertionIndex)
+    {
+        var slotRects = _favoriteGroupDragSlotBounds.Count > 0
+            ? _favoriteGroupDragSlotBounds
+            : CaptureFavoriteGroupChipBounds();
+        if (slotRects.Count == 0)
+        {
+            return;
+        }
+
+        var remainingGroups = groups
+            .Where(groupName => !string.Equals(groupName, draggedGroup, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        insertionIndex = Math.Clamp(insertionIndex, 0, remainingGroups.Count);
+        var finalOrder = remainingGroups.ToList();
+        finalOrder.Insert(insertionIndex, draggedGroup);
+
+        foreach (var groupName in groups)
+        {
+            if (string.Equals(groupName, draggedGroup, StringComparison.OrdinalIgnoreCase))
+            {
+                AnimateFavoriteGroupPreviewOffset(groupName, 0);
+                continue;
+            }
+
+            var originalIndex = groups
+                .ToList()
+                .FindIndex(current => string.Equals(current, groupName, StringComparison.OrdinalIgnoreCase));
+            var finalIndex = finalOrder
+                .FindIndex(current => string.Equals(current, groupName, StringComparison.OrdinalIgnoreCase));
+            if (originalIndex < 0 ||
+                finalIndex < 0 ||
+                originalIndex >= groups.Count ||
+                finalIndex >= groups.Count ||
+                !slotRects.TryGetValue(groupName, out var currentRect) ||
+                !slotRects.TryGetValue(groups[finalIndex], out var targetRect))
+            {
+                continue;
+            }
+
+            AnimateFavoriteGroupPreviewOffset(groupName, targetRect.Left - currentRect.Left);
+        }
+    }
+
+    private void AnimateFavoriteGroupPreviewOffset(string groupName, double offsetX)
+    {
+        if (FavoriteGroupList.ItemContainerGenerator.ContainerFromItem(groupName) is not ListBoxItem container)
+        {
+            return;
+        }
+
+        var transforms = EnsureGroupChipTransform(container);
+        transforms.Translate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+        {
+            To = offsetX,
+            Duration = TimeSpan.FromMilliseconds(140),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+        transforms.Translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation
+        {
+            To = 0,
+            Duration = TimeSpan.FromMilliseconds(140),
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+        });
+    }
+
+    private void ResetFavoriteGroupReorderPreview(bool animate)
+    {
+        foreach (var groupName in _favoriteGroups)
+        {
+            if (FavoriteGroupList.ItemContainerGenerator.ContainerFromItem(groupName) is not ListBoxItem container ||
+                !TryGetGroupChipTransforms(container, out _, out var translate))
+            {
+                continue;
+            }
+
+            if (animate)
+            {
+                translate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+                {
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(120),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+                translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation
+                {
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(120),
+                    EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut }
+                });
+            }
+            else
+            {
+                translate.BeginAnimation(TranslateTransform.XProperty, null);
+                translate.BeginAnimation(TranslateTransform.YProperty, null);
+                translate.X = 0;
+                translate.Y = 0;
+            }
+        }
+
+        _favoriteGroupPreviewInsertionIndex = -1;
+    }
+
+    private Dictionary<string, Rect> CaptureFavoriteGroupChipBounds()
+    {
+        var bounds = new Dictionary<string, Rect>(StringComparer.OrdinalIgnoreCase);
+        FavoriteGroupList.UpdateLayout();
+
+        foreach (var groupName in _favoriteGroups)
+        {
+            if (FavoriteGroupList.ItemContainerGenerator.ContainerFromItem(groupName) is not ListBoxItem container ||
+                container.ActualWidth <= 0 ||
+                container.ActualHeight <= 0)
+            {
+                continue;
+            }
+
+            var position = container.TransformToAncestor(FavoriteGroupList)
+                .Transform(new System.Windows.Point(0, 0));
+            bounds[groupName] = new Rect(position, new System.Windows.Size(container.ActualWidth, container.ActualHeight));
+        }
+
+        return bounds;
+    }
+
+    private void PlayFavoriteGroupReorderAnimation(IReadOnlyDictionary<string, Rect> previousBounds)
+    {
+        Dispatcher.BeginInvoke(() =>
+        {
+            FavoriteGroupList.UpdateLayout();
+
+            foreach (var groupName in _favoriteGroups)
+            {
+                if (!previousBounds.TryGetValue(groupName, out var previousRect) ||
+                    FavoriteGroupList.ItemContainerGenerator.ContainerFromItem(groupName) is not ListBoxItem container ||
+                    container.ActualWidth <= 0 ||
+                    container.ActualHeight <= 0)
+                {
+                    continue;
+                }
+
+                var currentPosition = container.TransformToAncestor(FavoriteGroupList)
+                    .Transform(new System.Windows.Point(0, 0));
+                var deltaX = previousRect.Left - currentPosition.X;
+                var deltaY = previousRect.Top - currentPosition.Y;
+                if (Math.Abs(deltaX) < 0.5 && Math.Abs(deltaY) < 0.5)
+                {
+                    continue;
+                }
+
+                var transforms = EnsureGroupChipTransform(container);
+                transforms.Translate.BeginAnimation(TranslateTransform.XProperty, null);
+                transforms.Translate.BeginAnimation(TranslateTransform.YProperty, null);
+                transforms.Translate.X = deltaX;
+                transforms.Translate.Y = deltaY;
+
+                var easing = new CubicEase { EasingMode = EasingMode.EaseOut };
+                transforms.Translate.BeginAnimation(TranslateTransform.XProperty, new DoubleAnimation
+                {
+                    From = deltaX,
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(260),
+                    EasingFunction = easing
+                });
+                transforms.Translate.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation
+                {
+                    From = deltaY,
+                    To = 0,
+                    Duration = TimeSpan.FromMilliseconds(260),
+                    EasingFunction = easing
+                });
+            }
+        }, System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    private void AnimateFavoriteGroupDropTarget(string? groupName)
+    {
+        AnimateFavoriteGroupTarget(
+            groupName,
+            string.IsNullOrWhiteSpace(groupName) ? string.Empty : $"松开后移入「{groupName}」。");
+    }
+
+    private void AnimateFavoriteGroupReorderTarget(string? groupName)
+    {
+        AnimateFavoriteGroupTarget(
+            groupName,
+            string.IsNullOrWhiteSpace(groupName) ? string.Empty : "松开后调整分组顺序。");
+    }
+
+    private void AnimateFavoriteGroupTarget(string? groupName, string statusMessage)
+    {
+        if (string.Equals(_activeFavoriteGroupDropTarget, groupName, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!string.IsNullOrWhiteSpace(statusMessage))
+            {
+                SetStatus(statusMessage);
+            }
+
+            return;
+        }
+
+        ResetFavoriteGroupDropTarget();
+        if (string.IsNullOrWhiteSpace(groupName) ||
+            FavoriteGroupList.ItemContainerGenerator.ContainerFromItem(groupName) is not ListBoxItem container)
+        {
+            return;
+        }
+
+        _activeFavoriteGroupDropTarget = groupName;
+        _animatedFavoriteGroupContainer = container;
+        var transforms = EnsureGroupChipTransform(container);
+
+        var pulse = new DoubleAnimation
+        {
+            From = 1,
+            To = 1.12,
+            Duration = TimeSpan.FromMilliseconds(260),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+        };
+
+        transforms.Scale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
+        transforms.Scale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse.Clone());
+
+        container.BeginAnimation(OpacityProperty, new DoubleAnimation
+        {
+            From = 1,
+            To = 0.82,
+            Duration = TimeSpan.FromMilliseconds(260),
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseInOut }
+        });
+
+        if (!string.IsNullOrWhiteSpace(statusMessage))
+        {
+            SetStatus(statusMessage);
+        }
+    }
+
+    private void PlayFavoriteGroupAssignedAnimation(string groupName)
+    {
+        if (FavoriteGroupList.ItemContainerGenerator.ContainerFromItem(groupName) is not ListBoxItem container)
+        {
+            return;
+        }
+
+        var transforms = EnsureGroupChipTransform(container);
+
+        transforms.Scale.BeginAnimation(ScaleTransform.ScaleXProperty, new DoubleAnimation
+        {
+            From = 1.2,
+            To = 1,
+            Duration = TimeSpan.FromMilliseconds(320),
+            EasingFunction = new BackEase
+            {
+                Amplitude = 0.28,
+                EasingMode = EasingMode.EaseOut
+            }
+        });
+        transforms.Scale.BeginAnimation(ScaleTransform.ScaleYProperty, new DoubleAnimation
+        {
+            From = 1.2,
+            To = 1,
+            Duration = TimeSpan.FromMilliseconds(320),
+            EasingFunction = new BackEase
+            {
+                Amplitude = 0.28,
+                EasingMode = EasingMode.EaseOut
+            }
+        });
+    }
+
+    private void ResetFavoriteGroupDropTarget()
+    {
+        if (_animatedFavoriteGroupContainer is { } container)
+        {
+            container.BeginAnimation(OpacityProperty, null);
+            container.Opacity = 1;
+
+            if (TryGetGroupChipTransforms(container, out var scale, out _))
+            {
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                scale.ScaleX = 1;
+                scale.ScaleY = 1;
+            }
+        }
+
+        _animatedFavoriteGroupContainer = null;
+        _activeFavoriteGroupDropTarget = null;
+    }
+
+    private static GroupChipTransforms EnsureGroupChipTransform(ListBoxItem container)
+    {
+        container.RenderTransformOrigin = new System.Windows.Point(0.5, 0.5);
+        if (TryGetGroupChipTransforms(container, out var existingScale, out var existingTranslate))
+        {
+            return new GroupChipTransforms(existingScale, existingTranslate);
+        }
+
+        var scale = new ScaleTransform(1, 1);
+        var translate = new TranslateTransform(0, 0);
+        var group = new TransformGroup();
+        group.Children.Add(scale);
+        group.Children.Add(translate);
+        container.RenderTransform = group;
+        return new GroupChipTransforms(scale, translate);
+    }
+
+    private static bool TryGetGroupChipTransforms(
+        ListBoxItem container,
+        out ScaleTransform scale,
+        out TranslateTransform translate)
+    {
+        if (container.RenderTransform is TransformGroup group)
+        {
+            scale = group.Children.OfType<ScaleTransform>().FirstOrDefault() ?? new ScaleTransform(1, 1);
+            translate = group.Children.OfType<TranslateTransform>().FirstOrDefault() ?? new TranslateTransform(0, 0);
+            if (!group.Children.Contains(scale))
+            {
+                group.Children.Insert(0, scale);
+            }
+
+            if (!group.Children.Contains(translate))
+            {
+                group.Children.Add(translate);
+            }
+
+            return true;
+        }
+
+        scale = null!;
+        translate = null!;
+        return false;
+    }
+
+    private sealed record GroupChipTransforms(ScaleTransform Scale, TranslateTransform Translate);
 
     private void UpdateFavoriteGroups()
     {
@@ -2012,6 +3784,12 @@ public partial class MainWindow : Window
             return;
         }
 
+        if (FolderItemsList.IsKeyboardFocusWithin && FolderItemsList.SelectedItem is LaunchItem folder)
+        {
+            OpenItem(folder);
+            return;
+        }
+
         if (AllItemsList.SelectedItem is LaunchItem item)
         {
             AddFavorite(item);
@@ -2135,6 +3913,24 @@ public partial class MainWindow : Window
         return (sender as MenuItem)?.CommandParameter as LaunchItem;
     }
 
+    private static string? GetMenuItemGroupName(object sender)
+    {
+        if (sender is not MenuItem menuItem)
+        {
+            return null;
+        }
+
+        if (menuItem.CommandParameter is string commandParameter &&
+            !string.IsNullOrWhiteSpace(commandParameter))
+        {
+            return commandParameter;
+        }
+
+        return menuItem.DataContext is string dataContext && !string.IsNullOrWhiteSpace(dataContext)
+            ? dataContext
+            : null;
+    }
+
     private static bool IsNonFileUri(string path)
     {
         return Uri.TryCreate(path, UriKind.Absolute, out var uri) && !uri.IsFile;
@@ -2164,6 +3960,138 @@ public partial class MainWindow : Window
 
         var directory = Path.GetDirectoryName(path);
         return string.IsNullOrWhiteSpace(directory) ? null : directory;
+    }
+
+    private bool ShowDisplayNameDialog(
+        string initialValue,
+        out string? displayName,
+        string title = "修改图标名称",
+        string description = "留空会恢复原始名称。")
+    {
+        displayName = null;
+
+        var input = new System.Windows.Controls.TextBox
+        {
+            Text = initialValue,
+            Height = 38,
+            MinWidth = 260,
+            Padding = new Thickness(12, 8, 12, 8),
+            BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(213, 227, 246)),
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(247, 251, 255)),
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(29, 41, 57)),
+            FontSize = 13,
+            VerticalContentAlignment = VerticalAlignment.Center
+        };
+
+        var confirmButton = new System.Windows.Controls.Button
+        {
+            Content = "保存",
+            Width = 78,
+            Height = 36,
+            Margin = new Thickness(8, 0, 0, 0),
+            Background = Resources["BlueBrush"] as System.Windows.Media.Brush,
+            BorderBrush = Resources["BlueBrush"] as System.Windows.Media.Brush,
+            Foreground = System.Windows.Media.Brushes.White,
+            FontWeight = FontWeights.SemiBold
+        };
+
+        var cancelButton = new System.Windows.Controls.Button
+        {
+            Content = "取消",
+            Width = 78,
+            Height = 36,
+            Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(247, 251, 255)),
+            BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(213, 227, 246)),
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(71, 84, 103)),
+            FontWeight = FontWeights.SemiBold
+        };
+
+        var buttons = new StackPanel
+        {
+            Orientation = System.Windows.Controls.Orientation.Horizontal,
+            HorizontalAlignment = System.Windows.HorizontalAlignment.Right,
+            Margin = new Thickness(0, 16, 0, 0)
+        };
+        buttons.Children.Add(cancelButton);
+        buttons.Children.Add(confirmButton);
+
+        var content = new StackPanel { Margin = new Thickness(18) };
+        content.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 18,
+            FontWeight = FontWeights.Bold,
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(17, 24, 39))
+        });
+        content.Children.Add(new TextBlock
+        {
+            Text = description,
+            Margin = new Thickness(0, 6, 0, 12),
+            FontSize = 12,
+            Foreground = new SolidColorBrush(System.Windows.Media.Color.FromRgb(102, 112, 133))
+        });
+        content.Children.Add(input);
+        content.Children.Add(buttons);
+
+        var dialog = new Window
+        {
+            Title = title,
+            Owner = this,
+            Width = 350,
+            Height = 206,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = true,
+            Background = System.Windows.Media.Brushes.Transparent,
+            ShowInTaskbar = false,
+            Content = new Border
+            {
+                Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(252, 255, 255, 255)),
+                BorderBrush = new SolidColorBrush(System.Windows.Media.Color.FromRgb(221, 232, 246)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(18),
+                Effect = Resources["SoftShadow"] as System.Windows.Media.Effects.Effect,
+                Child = content
+            }
+        };
+
+        var confirmed = false;
+        confirmButton.Click += (_, _) =>
+        {
+            confirmed = true;
+            dialog.Close();
+        };
+        cancelButton.Click += (_, _) => dialog.Close();
+        input.KeyDown += (_, e) =>
+        {
+            if (e.Key == Key.Enter)
+            {
+                confirmed = true;
+                dialog.Close();
+                e.Handled = true;
+            }
+            else if (e.Key == Key.Escape)
+            {
+                dialog.Close();
+                e.Handled = true;
+            }
+        };
+
+        dialog.Loaded += (_, _) =>
+        {
+            input.Focus();
+            input.SelectAll();
+        };
+
+        dialog.ShowDialog();
+        if (!confirmed)
+        {
+            return false;
+        }
+
+        displayName = input.Text;
+        return true;
     }
 
     private void InitializeTrayIcon()
@@ -2228,6 +4156,8 @@ public partial class MainWindow : Window
 
     private void MainWindow_StateChanged(object? sender, EventArgs e)
     {
+        UpdateWindowControlState();
+
         if (WindowState == WindowState.Minimized)
         {
             Hide();
@@ -2274,6 +4204,13 @@ public partial class MainWindow : Window
                 handled = true;
                 return new IntPtr(hitTest);
             }
+
+            hitTest = HitTestDragCaption(lParam);
+            if (hitTest != 0)
+            {
+                handled = true;
+                return new IntPtr(hitTest);
+            }
         }
 
         return IntPtr.Zero;
@@ -2290,14 +4227,29 @@ public partial class MainWindow : Window
     private void ApplyVisualSettings()
     {
         var opacity = Math.Clamp(_settings.GlassOpacity, 0.55, 1.0);
+        ApplyStackIconSize(_settings.StackIconSize);
         var accentColor = ParseAccentColor(_settings.AccentColor);
         _settings.AccentColor = ColorToHex(accentColor);
-        ApplyAccentColor(accentColor);
-        UpdateWindowClip();
-
+        _settings.ThemeMode = NormalizeThemeMode(_settings.ThemeMode);
+        var isDarkTheme = ResolveIsDarkTheme(_settings.ThemeMode);
+        ApplyThemeResources(isDarkTheme);
+        ApplyAccentColor(accentColor, isDarkTheme);
         var alpha = _settings.UseGlass ? (byte)(opacity * 255) : (byte)255;
-        GlassRoot.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, 248, 251, 255));
+        var baseColor = isDarkTheme
+            ? System.Windows.Media.Color.FromRgb(15, 23, 42)
+            : System.Windows.Media.Color.FromRgb(248, 251, 255);
+        if (GlassRoot is not null)
+        {
+            UpdateWindowClip();
+            GlassRoot.Background = new SolidColorBrush(System.Windows.Media.Color.FromArgb(alpha, baseColor.R, baseColor.G, baseColor.B));
+        }
+
         WindowBackdrop.Apply(this, _settings.UseGlass, opacity);
+    }
+
+    private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     }
 
     private static bool TryApplyStartupSetting(bool enabled, out string message)
@@ -2430,12 +4382,14 @@ public partial class MainWindow : Window
 
     private static IEnumerable<string> BuildSearchFields(LaunchItem item)
     {
+        yield return item.DisplayTitle;
+        yield return item.DisplayName ?? string.Empty;
         yield return item.Name;
         yield return item.Path;
         yield return item.Source;
         yield return Path.GetFileNameWithoutExtension(item.Path);
 
-        foreach (var value in BuildPinyinFields(item.Name))
+        foreach (var value in BuildPinyinFields(item.DisplayTitle))
         {
             yield return value;
         }
@@ -2526,6 +4480,134 @@ public partial class MainWindow : Window
             : $"{visibleCount}/{_favorites.Count} 项";
     }
 
+    private void UpdateFolderItems()
+    {
+        FolderCountText.Text = $"{_folders.Count} 项";
+        FolderEmptyPanel.Visibility = _folders.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private void RefreshFavoriteIcons()
+    {
+        foreach (var item in _favorites)
+        {
+            item.IconPath = _iconCache.TryGetIconPath(item);
+        }
+
+        _favoriteItemsView.Refresh();
+        UpdateFolderItems();
+        UpdateFavoriteCount();
+    }
+
+    private void LoadRecentFiles()
+    {
+        _recentItems.Clear();
+
+        var recentPath = Environment.GetFolderPath(Environment.SpecialFolder.Recent);
+        if (string.IsNullOrWhiteSpace(recentPath) || !Directory.Exists(recentPath))
+        {
+            UpdateRecentFilesEmptyState();
+            SetStatus("未找到 Windows 最近项目目录。");
+            return;
+        }
+
+        var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var items = Directory.EnumerateFiles(recentPath, "*.lnk", SearchOption.TopDirectoryOnly)
+            .Select(shortcutPath => new
+            {
+                ShortcutPath = shortcutPath,
+                LastWriteTime = File.GetLastWriteTime(shortcutPath),
+                TargetPath = TryResolveShortcutTarget(shortcutPath)
+            })
+            .Where(entry => !string.IsNullOrWhiteSpace(entry.TargetPath))
+            .Select(entry => new
+            {
+                entry.LastWriteTime,
+                TargetPath = Environment.ExpandEnvironmentVariables(entry.TargetPath!)
+            })
+            .Where(entry => File.Exists(entry.TargetPath) && !IsExecutableOrShortcut(entry.TargetPath))
+            .Where(entry => seenPaths.Add(NormalizePathKey(entry.TargetPath)))
+            .OrderByDescending(entry => entry.LastWriteTime)
+            .Take(40)
+            .Select(entry => CreateManualFileItem(entry.TargetPath, SourceRecent))
+            .ToList();
+
+        foreach (var item in items)
+        {
+            item.IconPath = _iconCache.TryGetIconPath(item);
+            _recentItems.Add(item);
+        }
+
+        UpdateRecentFilesEmptyState();
+        SetStatus(_recentItems.Count == 0
+            ? "没有读取到最近打开的文件。"
+            : $"已读取 {_recentItems.Count} 个最近打开的文件。");
+    }
+
+    private void UpdateRecentFilesEmptyState()
+    {
+        RecentEmptyPanel.Visibility = _recentItems.Count == 0
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+    }
+
+    private static bool IsExecutableOrShortcut(string path)
+    {
+        var extension = Path.GetExtension(path);
+        return string.Equals(extension, ".exe", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(extension, ".lnk", StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string? TryResolveShortcutTarget(string shortcutPath)
+    {
+        object? shell = null;
+        object? shortcut = null;
+
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType is null)
+            {
+                return null;
+            }
+
+            shell = Activator.CreateInstance(shellType);
+            if (shell is null)
+            {
+                return null;
+            }
+
+            shortcut = shellType.InvokeMember(
+                "CreateShortcut",
+                BindingFlags.InvokeMethod,
+                null,
+                shell,
+                [shortcutPath]);
+
+            return shortcut?.GetType()
+                .InvokeMember("TargetPath", BindingFlags.GetProperty, null, shortcut, null)
+                ?.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+        finally
+        {
+            ReleaseComObject(shortcut);
+            ReleaseComObject(shell);
+        }
+    }
+
+    private static void ReleaseComObject(object? value)
+    {
+        if (value is not null && Marshal.IsComObject(value))
+        {
+            _ = Marshal.FinalReleaseComObject(value);
+        }
+    }
+
     private void UpdateCompactOptionsVisibility()
     {
         CompactAllAppsOptionsPanel.Visibility = _settings.CompactAllApps
@@ -2551,6 +4633,11 @@ public partial class MainWindow : Window
 
     private void UpdateWindowClip()
     {
+        if (GlassRoot is null)
+        {
+            return;
+        }
+
         if (GlassRoot.ActualWidth <= 0 || GlassRoot.ActualHeight <= 0)
         {
             return;
@@ -2631,30 +4718,40 @@ public partial class MainWindow : Window
         }
 
         var point = PointFromScreen(GetPointFromLParam(lParam));
-        var onLeft = point.X >= 0 && point.X <= ResizeBorder;
-        var onRight = point.X <= ActualWidth && point.X >= ActualWidth - ResizeBorder;
-        var onTop = point.Y >= 0 && point.Y <= ResizeBorder;
-        var onBottom = point.Y <= ActualHeight && point.Y >= ActualHeight - ResizeBorder;
+        if (point.X < 0 || point.Y < 0 || point.X > ActualWidth || point.Y > ActualHeight)
+        {
+            return 0;
+        }
 
-        if (onTop && onLeft)
+        var onLeftCorner = point.X <= CornerResizeBorder;
+        var onRightCorner = point.X >= ActualWidth - CornerResizeBorder;
+        var onTopCorner = point.Y <= CornerResizeBorder;
+        var onBottomCorner = point.Y >= ActualHeight - CornerResizeBorder;
+
+        if (onTopCorner && onLeftCorner)
         {
             return HtTopLeft;
         }
 
-        if (onTop && onRight)
+        if (onTopCorner && onRightCorner)
         {
             return HtTopRight;
         }
 
-        if (onBottom && onLeft)
+        if (onBottomCorner && onLeftCorner)
         {
             return HtBottomLeft;
         }
 
-        if (onBottom && onRight)
+        if (onBottomCorner && onRightCorner)
         {
             return HtBottomRight;
         }
+
+        var onLeft = point.X <= ResizeBorder;
+        var onRight = point.X >= ActualWidth - ResizeBorder;
+        var onTop = point.Y <= ResizeBorder;
+        var onBottom = point.Y >= ActualHeight - ResizeBorder;
 
         if (onLeft)
         {
@@ -2672,6 +4769,34 @@ public partial class MainWindow : Window
         }
 
         return onBottom ? HtBottom : 0;
+    }
+
+    private int HitTestDragCaption(IntPtr lParam)
+    {
+        var point = PointFromScreen(GetPointFromLParam(lParam));
+        if (point.X < 0 ||
+            point.Y < ResizeBorder ||
+            point.X > ActualWidth ||
+            point.Y > HeaderDragHeight)
+        {
+            return 0;
+        }
+
+        if (InputHitTest(point) is not DependencyObject hit)
+        {
+            return HtCaption;
+        }
+
+        if (FindAncestor<System.Windows.Controls.Primitives.ButtonBase>(hit) is not null ||
+            FindAncestor<System.Windows.Controls.TextBox>(hit) is not null ||
+            FindAncestor<System.Windows.Controls.ComboBox>(hit) is not null ||
+            FindAncestor<System.Windows.Controls.ListBox>(hit) is not null ||
+            FindAncestor<Slider>(hit) is not null)
+        {
+            return 0;
+        }
+
+        return HtCaption;
     }
 
     private static System.Windows.Point GetPointFromLParam(IntPtr lParam)
@@ -3090,10 +5215,112 @@ public partial class MainWindow : Window
         return FindAncestor<ListBoxItem>(source)?.DataContext as LaunchItem;
     }
 
-    private void ApplyAccentColor(System.Windows.Media.Color color)
+    private void ApplyAccentColor(System.Windows.Media.Color color, bool isDarkTheme)
     {
-        Resources["BlueBrush"] = new SolidColorBrush(color);
-        Resources["PanelBorderBrush"] = new SolidColorBrush(BlendWithWhite(color, 0.78));
+        SetBrushResource("BlueBrush", color);
+        SetBrushResource("PanelBorderBrush", isDarkTheme
+            ? BlendWithBlack(color, 0.42)
+            : BlendWithWhite(color, 0.78));
+    }
+
+    private void ApplyThemeResources(bool isDarkTheme)
+    {
+        if (isDarkTheme)
+        {
+            SetBrushResource("TextBrush", System.Windows.Media.Color.FromRgb(241, 245, 249));
+            SetBrushResource("SubTextBrush", System.Windows.Media.Color.FromRgb(148, 163, 184));
+            SetBrushResource("WindowRootBrush", System.Windows.Media.Color.FromRgb(15, 23, 42));
+            SetBrushResource("PrimaryPanelBrush", System.Windows.Media.Color.FromArgb(226, 17, 24, 39));
+            SetBrushResource("SecondaryPanelBrush", System.Windows.Media.Color.FromArgb(226, 15, 23, 42));
+            SetBrushResource("CardBrush", System.Windows.Media.Color.FromRgb(30, 41, 59));
+            SetBrushResource("InputBrush", System.Windows.Media.Color.FromRgb(15, 23, 42));
+            SetBrushResource("ToolbarBrush", System.Windows.Media.Color.FromRgb(30, 41, 59));
+            SetBrushResource("ToolbarBorderBrush", System.Windows.Media.Color.FromRgb(51, 65, 85));
+            SetBrushResource("MutedPanelBrush", System.Windows.Media.Color.FromRgb(30, 41, 59));
+            SetBrushResource("StatusPanelBrush", System.Windows.Media.Color.FromArgb(212, 15, 23, 42));
+            SetBrushResource("StatusBorderBrush", System.Windows.Media.Color.FromRgb(51, 65, 85));
+            SetBrushResource("HoverBrush", System.Windows.Media.Color.FromRgb(30, 41, 59));
+            SetBrushResource("SelectedBrush", System.Windows.Media.Color.FromRgb(51, 65, 85));
+            SetBrushResource("DividerBrush", System.Windows.Media.Color.FromRgb(51, 65, 85));
+            SetBrushResource("DangerBrush", System.Windows.Media.Color.FromRgb(248, 113, 113));
+            return;
+        }
+
+        SetBrushResource("TextBrush", System.Windows.Media.Color.FromRgb(17, 24, 39));
+        SetBrushResource("SubTextBrush", System.Windows.Media.Color.FromRgb(102, 112, 133));
+        SetBrushResource("WindowRootBrush", System.Windows.Media.Color.FromRgb(248, 251, 255));
+        SetBrushResource("PrimaryPanelBrush", System.Windows.Media.Color.FromArgb(207, 248, 251, 255));
+        SetBrushResource("SecondaryPanelBrush", System.Windows.Media.Color.FromArgb(221, 248, 251, 255));
+        SetBrushResource("CardBrush", System.Windows.Media.Color.FromRgb(255, 255, 255));
+        SetBrushResource("InputBrush", System.Windows.Media.Color.FromRgb(247, 251, 255));
+        SetBrushResource("ToolbarBrush", System.Windows.Media.Color.FromRgb(234, 243, 255));
+        SetBrushResource("ToolbarBorderBrush", System.Windows.Media.Color.FromRgb(213, 227, 246));
+        SetBrushResource("MutedPanelBrush", System.Windows.Media.Color.FromRgb(228, 240, 255));
+        SetBrushResource("StatusPanelBrush", System.Windows.Media.Color.FromArgb(191, 247, 251, 255));
+        SetBrushResource("StatusBorderBrush", System.Windows.Media.Color.FromRgb(220, 233, 248));
+        SetBrushResource("HoverBrush", System.Windows.Media.Color.FromRgb(241, 247, 255));
+        SetBrushResource("SelectedBrush", System.Windows.Media.Color.FromRgb(231, 240, 255));
+        SetBrushResource("DividerBrush", System.Windows.Media.Color.FromRgb(238, 242, 247));
+        SetBrushResource("DangerBrush", System.Windows.Media.Color.FromRgb(229, 72, 77));
+    }
+
+    private void SetBrushResource(string key, System.Windows.Media.Color color)
+    {
+        if (Resources[key] is SolidColorBrush brush && !brush.IsFrozen)
+        {
+            brush.Color = color;
+            return;
+        }
+
+        Resources[key] = new SolidColorBrush(color);
+    }
+
+    private static string NormalizeThemeMode(string? value)
+    {
+        if (string.Equals(value, ThemeModeLight, StringComparison.OrdinalIgnoreCase))
+        {
+            return ThemeModeLight;
+        }
+
+        if (string.Equals(value, ThemeModeDark, StringComparison.OrdinalIgnoreCase))
+        {
+            return ThemeModeDark;
+        }
+
+        return ThemeModeSystem;
+    }
+
+    private static string GetThemeModeLabel(string value)
+    {
+        return NormalizeThemeMode(value) switch
+        {
+            ThemeModeLight => "浅色",
+            ThemeModeDark => "深色",
+            _ => "跟随系统"
+        };
+    }
+
+    private static bool ResolveIsDarkTheme(string themeMode)
+    {
+        return NormalizeThemeMode(themeMode) switch
+        {
+            ThemeModeDark => true,
+            ThemeModeLight => false,
+            _ => IsSystemDarkTheme()
+        };
+    }
+
+    private static bool IsSystemDarkTheme()
+    {
+        try
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            return key?.GetValue("AppsUseLightTheme") is int value && value == 0;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static System.Windows.Media.Color ParseAccentColor(string? value)
@@ -3128,6 +5355,15 @@ public partial class MainWindow : Window
             (byte)Math.Round(color.R + (255 - color.R) * ratio),
             (byte)Math.Round(color.G + (255 - color.G) * ratio),
             (byte)Math.Round(color.B + (255 - color.B) * ratio));
+    }
+
+    private static System.Windows.Media.Color BlendWithBlack(System.Windows.Media.Color color, double ratio)
+    {
+        ratio = Math.Clamp(ratio, 0, 1);
+        return System.Windows.Media.Color.FromRgb(
+            (byte)Math.Round(color.R * (1 - ratio)),
+            (byte)Math.Round(color.G * (1 - ratio)),
+            (byte)Math.Round(color.B * (1 - ratio)));
     }
 
     private sealed record SearchIndex(string[] Fields);

@@ -51,8 +51,10 @@ public sealed class SettingsStore
             HotKey = settings.HotKey,
             UseGlass = settings.UseGlass,
             GlassOpacity = settings.GlassOpacity,
+            StackIconSize = settings.StackIconSize,
             StartWithWindows = settings.StartWithWindows,
             AccentColor = settings.AccentColor,
+            ThemeMode = settings.ThemeMode,
             CompactAllApps = settings.CompactAllApps,
             HideShortcutItems = settings.HideShortcutItems,
             ShowStartMenuItems = settings.ShowStartMenuItems,
@@ -63,7 +65,8 @@ public sealed class SettingsStore
                 .Where(groupName => !string.IsNullOrWhiteSpace(groupName))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .ToList(),
-            Favorites = settings.Favorites.Select(item => item.Clone()).ToList()
+            Favorites = settings.Favorites.Select(item => item.Clone()).ToList(),
+            Folders = settings.Folders.Select(item => item.Clone()).ToList()
         };
 
         var directory = Path.GetDirectoryName(SettingsPath);

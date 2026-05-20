@@ -16,12 +16,27 @@
         Icon="Assets/AppIcon.ico"
         Background="Transparent"
         UseLayoutRounding="True"
-        SnapsToDevicePixels="True">
+        SnapsToDevicePixels="True"
+        x:Name="RootWindow">
     <Window.Resources>
         <SolidColorBrush x:Key="TextBrush" Color="#111827" />
         <SolidColorBrush x:Key="SubTextBrush" Color="#667085" />
         <SolidColorBrush x:Key="PanelBorderBrush" Color="#D6E6F8" />
         <SolidColorBrush x:Key="BlueBrush" Color="#2F7CF6" />
+        <SolidColorBrush x:Key="WindowRootBrush" Color="#DDF8FBFF" />
+        <SolidColorBrush x:Key="PrimaryPanelBrush" Color="#CFF8FBFF" />
+        <SolidColorBrush x:Key="SecondaryPanelBrush" Color="#DDF8FBFF" />
+        <SolidColorBrush x:Key="CardBrush" Color="#FFFFFF" />
+        <SolidColorBrush x:Key="InputBrush" Color="#F7FBFF" />
+        <SolidColorBrush x:Key="ToolbarBrush" Color="#EAF3FF" />
+        <SolidColorBrush x:Key="ToolbarBorderBrush" Color="#D5E3F6" />
+        <SolidColorBrush x:Key="MutedPanelBrush" Color="#E4F0FF" />
+        <SolidColorBrush x:Key="StatusPanelBrush" Color="#BFF7FBFF" />
+        <SolidColorBrush x:Key="StatusBorderBrush" Color="#DCE9F8" />
+        <SolidColorBrush x:Key="HoverBrush" Color="#F1F7FF" />
+        <SolidColorBrush x:Key="SelectedBrush" Color="#E7F0FF" />
+        <SolidColorBrush x:Key="DividerBrush" Color="#EEF2F7" />
+        <SolidColorBrush x:Key="DangerBrush" Color="#E5484D" />
 
         <DropShadowEffect x:Key="SoftShadow"
                           BlurRadius="18"
@@ -35,9 +50,9 @@
             <Setter Property="MinWidth" Value="90" />
             <Setter Property="Padding" Value="12,0" />
             <Setter Property="Margin" Value="7,0,0,0" />
-            <Setter Property="Background" Value="#EAF3FF" />
-            <Setter Property="BorderBrush" Value="#D5E3F6" />
-            <Setter Property="Foreground" Value="#1D2939" />
+            <Setter Property="Background" Value="{DynamicResource ToolbarBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarBorderBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
@@ -69,7 +84,7 @@
             <Setter Property="Width" Value="34" />
             <Setter Property="Height" Value="34" />
             <Setter Property="Margin" Value="0,0,8,0" />
-            <Setter Property="BorderBrush" Value="#D5E3F6" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarBorderBrush}" />
             <Setter Property="BorderThickness" Value="2" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="Template">
@@ -82,7 +97,7 @@
                                 CornerRadius="17" />
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="BorderBrush" Value="#111827" />
+                                <Setter TargetName="Root" Property="BorderBrush" Value="{DynamicResource TextBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -108,7 +123,7 @@
                                     HorizontalAlignment="Center"
                                     VerticalAlignment="Stretch"
                                     CornerRadius="3"
-                                    Background="#7FD6E6F8"
+                                    Background="{DynamicResource DividerBrush}"
                                     Margin="0,54,0,54" />
                         </Grid>
                         <ControlTemplate.Triggers>
@@ -123,13 +138,15 @@
         </Style>
 
         <Style x:Key="WindowButtonStyle" TargetType="Button">
-            <Setter Property="Width" Value="42" />
-            <Setter Property="Height" Value="30" />
+            <Setter Property="Width" Value="50" />
+            <Setter Property="Height" Value="34" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Foreground" Value="#475467" />
-            <Setter Property="FontSize" Value="16" />
+            <Setter Property="Foreground" Value="{DynamicResource SubTextBrush}" />
+            <Setter Property="FontFamily" Value="Segoe Fluent Icons, Segoe MDL2 Assets" />
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
@@ -138,7 +155,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#EAF3FF" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ToolbarBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -272,8 +289,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ToolTip">
-                        <Border Background="#FCFFFFFF"
-                                BorderBrush="#DDE8F6"
+                        <Border Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="14"
                                 Padding="12,10"
@@ -292,8 +309,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ContextMenu">
-                        <Border Background="#FCFFFFFF"
-                                BorderBrush="#DDE8F6"
+                        <Border Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="16"
                                 Padding="6"
@@ -309,7 +326,7 @@
         <Style x:Key="FavoriteContextMenuItemStyle" TargetType="MenuItem">
             <Setter Property="Height" Value="36" />
             <Setter Property="Padding" Value="12,0" />
-            <Setter Property="Foreground" Value="#1D2939" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
@@ -328,7 +345,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#EAF3FF" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ToolbarBrush}" />
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter TargetName="HeaderHost" Property="Opacity" Value="0.45" />
@@ -342,7 +359,7 @@
         <Style x:Key="DangerFavoriteContextMenuItemStyle"
                TargetType="MenuItem"
                BasedOn="{StaticResource FavoriteContextMenuItemStyle}">
-            <Setter Property="Foreground" Value="#E5484D" />
+            <Setter Property="Foreground" Value="{DynamicResource DangerBrush}" />
         </Style>
 
         <Style x:Key="FavoriteContextMenuSeparatorStyle" TargetType="Separator">
@@ -350,7 +367,7 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Separator">
-                        <Border Height="1" Background="#E8EEF7" />
+                        <Border Height="1" Background="{DynamicResource DividerBrush}" />
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
@@ -361,16 +378,31 @@
             <Setter Property="Height" Value="34" />
             <Setter Property="Padding" Value="14,0" />
             <Setter Property="Margin" Value="0,0,8,0" />
-            <Setter Property="Foreground" Value="#475467" />
+            <Setter Property="Foreground" Value="{DynamicResource SubTextBrush}" />
             <Setter Property="FontSize" Value="13" />
             <Setter Property="FontWeight" Value="SemiBold" />
             <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="ContextMenu">
+                <Setter.Value>
+                    <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                                 Style="{StaticResource FavoriteContextMenuStyle}">
+                        <MenuItem Header="重命名"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="RenameFavoriteGroupMenuItem_Click" />
+                        <MenuItem Header="删除"
+                                  Style="{StaticResource DangerFavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="DeleteFavoriteGroupMenuItem_Click" />
+                    </ContextMenu>
+                </Setter.Value>
+            </Setter>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListBoxItem">
                         <Border x:Name="Root"
-                                Background="#F7FBFF"
-                                BorderBrush="#D5E3F6"
+                                Background="{DynamicResource InputBrush}"
+                                BorderBrush="{DynamicResource ToolbarBorderBrush}"
                                 BorderThickness="1"
                                 CornerRadius="17"
                                 Padding="{TemplateBinding Padding}">
@@ -379,7 +411,7 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#EAF3FF" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource ToolbarBrush}" />
                             </Trigger>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter TargetName="Root" Property="Background" Value="{DynamicResource BlueBrush}" />
@@ -403,18 +435,18 @@
         <Style TargetType="ComboBox">
             <Setter Property="Height" Value="34" />
             <Setter Property="Padding" Value="8,4" />
-            <Setter Property="BorderBrush" Value="#D5E3F6" />
-            <Setter Property="Background" Value="#F7FBFF" />
-            <Setter Property="Foreground" Value="#1D2939" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarBorderBrush}" />
+            <Setter Property="Background" Value="{DynamicResource InputBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="FontSize" Value="13" />
         </Style>
 
         <Style TargetType="TextBox">
             <Setter Property="Height" Value="38" />
             <Setter Property="Padding" Value="12,8" />
-            <Setter Property="BorderBrush" Value="#D5E3F6" />
-            <Setter Property="Background" Value="#F7FBFF" />
-            <Setter Property="Foreground" Value="#1D2939" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ToolbarBorderBrush}" />
+            <Setter Property="Background" Value="{DynamicResource InputBrush}" />
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}" />
             <Setter Property="FontSize" Value="13" />
         </Style>
 
@@ -432,10 +464,10 @@
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#E7F0FF" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource SelectedBrush}" />
                             </Trigger>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Root" Property="Background" Value="#F1F7FF" />
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource HoverBrush}" />
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -444,8 +476,8 @@
         </Style>
 
         <DataTemplate x:Key="FavoriteTileTemplate">
-            <Grid Width="92"
-                  Height="96"
+            <Grid Width="{Binding StackTileWidth, RelativeSource={RelativeSource AncestorType=Window}}"
+                  Height="{Binding StackTileHeight, RelativeSource={RelativeSource AncestorType=Window}}"
                   Margin="2"
                   Cursor="Hand"
                   PreviewMouseRightButtonDown="FavoriteTile_PreviewMouseRightButtonDown">
@@ -453,15 +485,15 @@
                     <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
                              Style="{StaticResource FavoriteToolTipStyle}">
                         <StackPanel MinWidth="220" MaxWidth="420">
-                            <TextBlock Text="{Binding Name}"
+                            <TextBlock Text="{Binding DisplayTitle}"
                                        FontSize="14"
                                        FontWeight="SemiBold"
-                                       Foreground="#111827"
+                                       Foreground="{DynamicResource TextBrush}"
                                        TextWrapping="Wrap" />
                             <TextBlock Text="{Binding Path}"
                                        Margin="0,5,0,0"
                                        FontSize="12"
-                                       Foreground="#667085"
+                                       Foreground="{DynamicResource SubTextBrush}"
                                        TextWrapping="Wrap" />
                         </StackPanel>
                     </ToolTip>
@@ -491,32 +523,175 @@
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
                                   Click="CopyFavoritePathMenuItem_Click" />
+                        <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
+                        <MenuItem Header="修改备注"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="EditFavoriteDisplayNameMenuItem_Click" />
+                        <MenuItem Header="清除备注"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="ClearFavoriteDisplayNameMenuItem_Click" />
                     </ContextMenu>
                 </Grid.ContextMenu>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="58" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
-                <Border Width="52"
-                        Height="52"
+                <Border Width="{Binding StackIconFrameSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                        Height="{Binding StackIconFrameSize, RelativeSource={RelativeSource AncestorType=Window}}"
                         CornerRadius="13"
-                        Background="#ECF4FF"
-                        BorderBrush="#D6E5F7"
+                        Background="{DynamicResource InputBrush}"
+                        BorderBrush="{DynamicResource ToolbarBorderBrush}"
                         BorderThickness="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Effect="{StaticResource SoftShadow}">
-                    <Image Source="{Binding IconPath}" Width="44" Height="44" Stretch="Uniform" />
+                    <Image Source="{Binding IconPath}"
+                           Width="{Binding StackIconImageSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                           Height="{Binding StackIconImageSize, RelativeSource={RelativeSource AncestorType=Window}}"
+                           Stretch="Uniform" />
                 </Border>
                 <TextBlock Grid.Row="1"
-                           Text="{Binding Name}"
+                           Text="{Binding DisplayTitle}"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Top"
-                           FontSize="14"
+                           Margin="0,6,0,0"
+                           FontSize="{Binding StackTileFontSize, RelativeSource={RelativeSource AncestorType=Window}}"
                            FontWeight="SemiBold"
-                           Foreground="#344054"
+                           Foreground="{DynamicResource TextBrush}"
                            TextAlignment="Center"
                            TextTrimming="CharacterEllipsis" />
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="FolderItemTemplate">
+            <Grid MinHeight="48"
+                  Margin="4,2"
+                  PreviewMouseRightButtonDown="FolderItem_PreviewMouseRightButtonDown">
+                <Grid.ToolTip>
+                    <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                             Style="{StaticResource FavoriteToolTipStyle}">
+                        <StackPanel MinWidth="220" MaxWidth="420">
+                            <TextBlock Text="{Binding DisplayTitle}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Path}"
+                                       Margin="0,5,0,0"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource SubTextBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ToolTip>
+                </Grid.ToolTip>
+                <Grid.ContextMenu>
+                    <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                                 Style="{StaticResource FavoriteContextMenuStyle}">
+                        <MenuItem Header="移除"
+                                  Style="{StaticResource DangerFavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="RemoveFolderMenuItem_Click" />
+                        <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
+                        <MenuItem Header="打开"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="OpenFolderMenuItem_Click" />
+                        <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
+                        <MenuItem Header="打开所在位置"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="OpenFolderLocationMenuItem_Click" />
+                        <MenuItem Header="复制路径"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="CopyFolderPathMenuItem_Click" />
+                        <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
+                        <MenuItem Header="修改备注"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="EditFolderDisplayNameMenuItem_Click" />
+                        <MenuItem Header="清除备注"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Click="ClearFolderDisplayNameMenuItem_Click" />
+                    </ContextMenu>
+                </Grid.ContextMenu>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="42" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <Border Width="32"
+                        Height="32"
+                        CornerRadius="8"
+                        Background="{DynamicResource InputBrush}"
+                        BorderBrush="{DynamicResource ToolbarBorderBrush}"
+                        BorderThickness="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <Image Source="{Binding IconPath}" Width="26" Height="26" Stretch="Uniform" />
+                </Border>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,0,0">
+                    <TextBlock Text="{Binding DisplayTitle}"
+                               FontWeight="SemiBold"
+                               FontSize="14"
+                               Foreground="{DynamicResource TextBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Path}"
+                               Foreground="{DynamicResource SubTextBrush}"
+                               FontSize="12"
+                               Margin="0,1,0,0"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+
+        <DataTemplate x:Key="RecentItemTemplate">
+            <Grid MinHeight="52" Margin="4,3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="44" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="36" />
+                </Grid.ColumnDefinitions>
+
+                <Border Width="34"
+                        Height="34"
+                        CornerRadius="8"
+                        Background="{DynamicResource InputBrush}"
+                        BorderBrush="{DynamicResource ToolbarBorderBrush}"
+                        BorderThickness="1"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center">
+                    <Image Source="{Binding IconPath}" Width="28" Height="28" Stretch="Uniform" />
+                </Border>
+
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="6,0,0,0">
+                    <TextBlock Text="{Binding Name}"
+                               FontWeight="SemiBold"
+                               FontSize="14"
+                               Foreground="{DynamicResource TextBrush}"
+                               TextTrimming="CharacterEllipsis" />
+                    <TextBlock Text="{Binding Path}"
+                               Foreground="{DynamicResource SubTextBrush}"
+                               FontSize="12"
+                               Margin="0,2,0,0"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+
+                <Button Grid.Column="2"
+                        Width="30"
+                        Height="30"
+                        Content="+"
+                        FontSize="20"
+                        Foreground="{DynamicResource BlueBrush}"
+                        Background="{DynamicResource InputBrush}"
+                        BorderBrush="{DynamicResource ToolbarBorderBrush}"
+                        Cursor="Hand"
+                        ToolTip="加入堆栈"
+                        Click="AddRecentFileButton_Click" />
             </Grid>
         </DataTemplate>
 
@@ -531,8 +706,8 @@
                 <Border Width="36"
                         Height="36"
                         CornerRadius="9"
-                        Background="#ECF4FF"
-                        BorderBrush="#D6E5F7"
+                        Background="{DynamicResource InputBrush}"
+                        BorderBrush="{DynamicResource ToolbarBorderBrush}"
                         BorderThickness="1"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center">
@@ -543,10 +718,10 @@
                     <TextBlock Text="{Binding Name}"
                                FontWeight="SemiBold"
                                FontSize="14"
-                               Foreground="#1D2939"
+                               Foreground="{DynamicResource TextBrush}"
                                TextTrimming="CharacterEllipsis" />
                     <TextBlock Text="{Binding Path}"
-                               Foreground="#667085"
+                               Foreground="{DynamicResource SubTextBrush}"
                                FontSize="12"
                                Margin="0,3,0,0"
                                TextTrimming="CharacterEllipsis" />
@@ -558,8 +733,8 @@
                         Content="+"
                         FontSize="23"
                         Foreground="{DynamicResource BlueBrush}"
-                        Background="#F7FBFF"
-                        BorderBrush="#D5E3F6"
+                        Background="{DynamicResource InputBrush}"
+                        BorderBrush="{DynamicResource ToolbarBorderBrush}"
                         Cursor="Hand"
                         Click="AddFromAllItemButton_Click" />
             </Grid>
@@ -568,7 +743,7 @@
 
     <Border x:Name="GlassRoot"
             CornerRadius="28"
-            Background="#DDF8FBFF"
+            Background="{DynamicResource WindowRootBrush}"
             BorderBrush="Transparent"
             BorderThickness="0"
             ClipToBounds="True"
@@ -593,9 +768,13 @@
                             HorizontalAlignment="Right"
                             VerticalAlignment="Top"
                             Margin="0,-10,-14,0">
-                    <Button Content="-" Style="{StaticResource WindowButtonStyle}" ToolTip="最小化" Click="MinimizeWindow_Click" />
-                    <Button Content="□" Style="{StaticResource WindowButtonStyle}" ToolTip="最大化/还原" Click="ToggleMaximize_Click" />
-                    <Button Content="×" Style="{StaticResource CloseButtonStyle}" ToolTip="关闭到托盘" Click="CloseWindow_Click" />
+                    <Button Content="&#xE921;" Style="{StaticResource WindowButtonStyle}" ToolTip="最小化" Click="MinimizeWindow_Click" />
+                    <Button x:Name="MaximizeRestoreButton"
+                            Content="&#xE922;"
+                            Style="{StaticResource WindowButtonStyle}"
+                            ToolTip="最大化"
+                            Click="ToggleMaximize_Click" />
+                    <Button Content="&#xE8BB;" Style="{StaticResource CloseButtonStyle}" ToolTip="关闭到托盘" Click="CloseWindow_Click" />
                 </StackPanel>
 
                 <Grid Grid.Row="1">
@@ -640,16 +819,20 @@
                     <StackPanel Grid.Column="1"
                                 Orientation="Horizontal"
                                 VerticalAlignment="Center">
-                        <Button Style="{StaticResource ToolbarButtonStyle}" Click="RefreshButton_Click">
+                        <Button x:Name="RecentFilesButton"
+                                Style="{StaticResource ToolbarButtonStyle}"
+                                Click="RecentFilesButton_Click">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="↻" FontSize="18" Margin="0,0,8,0" />
-                                <TextBlock Text="刷新" />
+                                <TextBlock Text="◴" FontSize="17" Margin="0,0,8,0" />
+                                <TextBlock Text="最近打开" />
                             </StackPanel>
                         </Button>
-                        <Button Style="{StaticResource ToolbarButtonStyle}" Click="AddApplicationButton_Click">
+                        <Button x:Name="AllAppsButton"
+                                Style="{StaticResource ToolbarButtonStyle}"
+                                Click="AllAppsButton_Click">
                             <StackPanel Orientation="Horizontal">
-                                <TextBlock Text="+" FontSize="18" Margin="0,0,8,0" />
-                                <TextBlock Text="添加应用" />
+                                <TextBlock Text="▦" FontSize="17" Margin="0,0,8,0" />
+                                <TextBlock Text="全部应用" />
                             </StackPanel>
                         </Button>
                         <Button Style="{StaticResource ToolbarButtonStyle}" Click="AddFileButton_Click">
@@ -690,7 +873,7 @@
 
                 <Border Grid.Column="0"
                         CornerRadius="24"
-                        Background="#CFF8FBFF"
+                        Background="{DynamicResource PrimaryPanelBrush}"
                         BorderBrush="{DynamicResource PanelBorderBrush}"
                         BorderThickness="1"
                         Padding="26">
@@ -734,16 +917,19 @@
                                      SelectionMode="Single"
                                      AllowDrop="True"
                                      PreviewMouseLeftButtonDown="FavoriteGroupList_PreviewMouseLeftButtonDown"
+                                     PreviewMouseRightButtonDown="FavoriteGroupList_PreviewMouseRightButtonDown"
                                      PreviewMouseMove="FavoriteGroupList_PreviewMouseMove"
                                      DragOver="FavoriteGroupList_DragOver"
+                                     DragLeave="FavoriteGroupList_DragLeave"
                                      Drop="FavoriteGroupList_Drop"
+                                     GiveFeedback="FavoriteGroupList_GiveFeedback"
                                      SelectionChanged="FavoriteGroupList_SelectionChanged">
                                 <ListBox.ItemsPanel>
-                                    <ItemsPanelTemplate>
-                                        <StackPanel Orientation="Horizontal" />
-                                    </ItemsPanelTemplate>
-                                </ListBox.ItemsPanel>
-                            </ListBox>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                    </ListBox>
 
                             <Button x:Name="AddFavoriteGroupButton"
                                     Grid.Column="2"
@@ -760,7 +946,7 @@
 
                             <Border Grid.Column="3"
                                     CornerRadius="9"
-                                    Background="#E4F0FF"
+                                    Background="{DynamicResource MutedPanelBrush}"
                                     Padding="12,6"
                                     VerticalAlignment="Center">
                                 <TextBlock x:Name="FavoriteCountText"
@@ -777,8 +963,8 @@
                                 <Border Width="220"
                                         Margin="0,8,0,0"
                                         CornerRadius="16"
-                                        Background="#FCFFFFFF"
-                                        BorderBrush="#DDE8F6"
+                                        Background="{DynamicResource CardBrush}"
+                                        BorderBrush="{DynamicResource PanelBorderBrush}"
                                         BorderThickness="1"
                                         Padding="10"
                                         Effect="{StaticResource SoftShadow}">
@@ -827,9 +1013,7 @@
                                      PreviewKeyDown="List_PreviewKeyDown">
                                 <ListBox.ItemsPanel>
                                     <ItemsPanelTemplate>
-                                        <WrapPanel HorizontalAlignment="Left"
-                                                   ItemWidth="96"
-                                                   ItemHeight="100" />
+                                        <WrapPanel HorizontalAlignment="Left" />
                                     </ItemsPanelTemplate>
                                 </ListBox.ItemsPanel>
                             </ListBox>
@@ -843,10 +1027,219 @@
 
                 <Border Grid.Column="2"
                         CornerRadius="24"
-                        Background="#DDF8FBFF"
+                        Background="{DynamicResource SecondaryPanelBrush}"
                         BorderBrush="{DynamicResource PanelBorderBrush}"
                         BorderThickness="1"
-                        Padding="18">
+                        Padding="18"
+                        AllowDrop="True"
+                        DragOver="FolderStack_DragOver"
+                        Drop="FolderStack_Drop">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                            <Border DockPanel.Dock="Right"
+                                    CornerRadius="9"
+                                    Background="{DynamicResource MutedPanelBrush}"
+                                    Padding="12,6"
+                                    VerticalAlignment="Center">
+                                <TextBlock x:Name="FolderCountText"
+                                           Foreground="{DynamicResource SubTextBrush}"
+                                           FontSize="13"
+                                           FontWeight="SemiBold" />
+                            </Border>
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="▰"
+                                           Foreground="{DynamicResource BlueBrush}"
+                                           FontSize="23"
+                                           Margin="0,0,12,0" />
+                                <TextBlock Text="文件夹"
+                                           FontSize="20"
+                                           FontWeight="Bold"
+                                           Foreground="{StaticResource TextBrush}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DockPanel>
+
+                        <Grid Grid.Row="1">
+                            <ListBox x:Name="FolderItemsList"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     AllowDrop="True"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ItemTemplate="{StaticResource FolderItemTemplate}"
+                                     PreviewMouseLeftButtonDown="FolderItemsList_PreviewMouseLeftButtonDown"
+                                     PreviewMouseMove="FolderItemsList_PreviewMouseMove"
+                                     DragOver="FolderStack_DragOver"
+                                     DragLeave="FolderItemsList_DragLeave"
+                                     Drop="FolderStack_Drop"
+                                     GiveFeedback="FolderItemsList_GiveFeedback"
+                                     MouseDoubleClick="FolderItemsList_MouseDoubleClick"
+                                     PreviewKeyDown="List_PreviewKeyDown" />
+
+                            <StackPanel x:Name="FolderEmptyPanel"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Margin="20"
+                                        Visibility="Collapsed">
+                                <TextBlock Text="暂无文件夹"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource TextBrush}"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="点击上方「添加文件夹」后会显示在这里"
+                                           Margin="0,8,0,0"
+                                           FontSize="13"
+                                           Foreground="{DynamicResource SubTextBrush}"
+                                           TextAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Button Grid.Row="2"
+                                Height="44"
+                                Margin="0,14,0,0"
+                                Background="{DynamicResource ToolbarBrush}"
+                                BorderBrush="{DynamicResource ToolbarBorderBrush}"
+                                Foreground="{DynamicResource SubTextBrush}"
+                                FontSize="13"
+                                FontWeight="SemiBold"
+                                Cursor="Hand"
+                                Click="AddFolderButton_Click">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="+" FontSize="18" Margin="0,0,8,0" />
+                                <TextBlock Text="添加文件夹" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
+            </Grid>
+
+            <Border Grid.Row="2"
+                    CornerRadius="14"
+                    Background="{DynamicResource StatusPanelBrush}"
+                    BorderBrush="{DynamicResource StatusBorderBrush}"
+                    BorderThickness="1"
+                    Padding="14,11"
+                    Margin="0,18,0,0">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="✓"
+                               Foreground="{DynamicResource TextBrush}"
+                               FontWeight="Bold"
+                               Margin="0,0,10,0" />
+                    <TextBlock x:Name="StatusText"
+                               Foreground="{DynamicResource SubTextBrush}"
+                               FontSize="13"
+                               FontWeight="SemiBold"
+                               TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+            </Border>
+
+            <Popup x:Name="RecentFilesPopup"
+                   PlacementTarget="{Binding ElementName=RecentFilesButton}"
+                   Placement="Bottom"
+                   AllowsTransparency="True"
+                   StaysOpen="False">
+                <Border Width="500"
+                        Height="520"
+                        CornerRadius="24"
+                        Background="{DynamicResource SecondaryPanelBrush}"
+                        BorderBrush="{DynamicResource PanelBorderBrush}"
+                        BorderThickness="1"
+                        Padding="18"
+                        Effect="{StaticResource SoftShadow}">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <DockPanel Grid.Row="0" Margin="0,0,0,12">
+                            <Button DockPanel.Dock="Right"
+                                    Content="×"
+                                    Style="{StaticResource RoundIconButtonStyle}"
+                                    FontSize="18"
+                                    Margin="0"
+                                    ToolTip="关闭"
+                                    Click="CloseRecentFilesPopupButton_Click" />
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="◴"
+                                           Foreground="{DynamicResource BlueBrush}"
+                                           FontSize="23"
+                                           Margin="0,0,12,0" />
+                                <TextBlock Text="最近打开"
+                                           FontSize="20"
+                                           FontWeight="Bold"
+                                           Foreground="{StaticResource TextBrush}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                        </DockPanel>
+
+                        <Grid Grid.Row="1">
+                            <ListBox x:Name="RecentItemsList"
+                                     Background="Transparent"
+                                     BorderThickness="0"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                                     ItemTemplate="{StaticResource RecentItemTemplate}"
+                                     MouseDoubleClick="RecentItemsList_MouseDoubleClick"
+                                     PreviewKeyDown="List_PreviewKeyDown" />
+
+                            <StackPanel x:Name="RecentEmptyPanel"
+                                        HorizontalAlignment="Center"
+                                        VerticalAlignment="Center"
+                                        Margin="20"
+                                        Visibility="Collapsed">
+                                <TextBlock Text="暂无最近文件"
+                                           FontSize="18"
+                                           FontWeight="Bold"
+                                           Foreground="{DynamicResource TextBrush}"
+                                           HorizontalAlignment="Center" />
+                                <TextBlock Text="Windows 最近项目为空，或系统已关闭最近项目记录"
+                                           Margin="0,8,0,0"
+                                           FontSize="13"
+                                           Foreground="{DynamicResource SubTextBrush}"
+                                           TextAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Button Grid.Row="2"
+                                Height="44"
+                                Margin="0,14,0,0"
+                                Background="{DynamicResource ToolbarBrush}"
+                                BorderBrush="{DynamicResource ToolbarBorderBrush}"
+                                Foreground="{DynamicResource SubTextBrush}"
+                                FontSize="13"
+                                FontWeight="SemiBold"
+                                Cursor="Hand"
+                                Click="ReloadRecentFilesButton_Click">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="↻" FontSize="18" Margin="0,0,8,0" />
+                                <TextBlock Text="重新读取" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
+            </Popup>
+
+            <Popup x:Name="AllAppsPopup"
+                   PlacementTarget="{Binding ElementName=AllAppsButton}"
+                   Placement="Bottom"
+                   AllowsTransparency="True"
+                   StaysOpen="False">
+                <Border Width="520"
+                        Height="570"
+                        CornerRadius="24"
+                        Background="{DynamicResource SecondaryPanelBrush}"
+                        BorderBrush="{DynamicResource PanelBorderBrush}"
+                        BorderThickness="1"
+                        Padding="18"
+                        Effect="{StaticResource SoftShadow}">
                     <Grid>
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto" />
@@ -857,11 +1250,12 @@
 
                         <DockPanel Grid.Row="0" Margin="0,0,0,12">
                             <Button DockPanel.Dock="Right"
-                                    Content="⌕"
+                                    Content="×"
                                     Style="{StaticResource RoundIconButtonStyle}"
-                                    FontSize="24"
+                                    FontSize="18"
                                     Margin="0"
-                                    Click="SearchToggleButton_Click" />
+                                    ToolTip="关闭"
+                                    Click="CloseAllAppsPopupButton_Click" />
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Text="▦"
                                            Foreground="{DynamicResource BlueBrush}"
@@ -894,41 +1288,21 @@
                         <Button Grid.Row="3"
                                 Height="44"
                                 Margin="0,14,0,0"
-                                Background="#EEF6FF"
-                                BorderBrush="#D5E3F6"
-                                Foreground="#667085"
+                                Background="{DynamicResource ToolbarBrush}"
+                                BorderBrush="{DynamicResource ToolbarBorderBrush}"
+                                Foreground="{DynamicResource SubTextBrush}"
                                 FontSize="13"
                                 FontWeight="SemiBold"
                                 Cursor="Hand"
                                 Click="FocusSearchButton_Click">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <TextBlock Text="⌄" FontSize="18" Margin="0,0,8,0" />
-                                <TextBlock Text="查看更多" />
+                                <TextBlock Text="⌕" FontSize="18" Margin="0,0,8,0" />
+                                <TextBlock Text="搜索全部应用" />
                             </StackPanel>
                         </Button>
                     </Grid>
                 </Border>
-            </Grid>
-
-            <Border Grid.Row="2"
-                    CornerRadius="14"
-                    Background="#BFF7FBFF"
-                    BorderBrush="#DCE9F8"
-                    BorderThickness="1"
-                    Padding="14,11"
-                    Margin="0,18,0,0">
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="✓"
-                               Foreground="#344054"
-                               FontWeight="Bold"
-                               Margin="0,0,10,0" />
-                    <TextBlock x:Name="StatusText"
-                               Foreground="#475467"
-                               FontSize="13"
-                               FontWeight="SemiBold"
-                               TextTrimming="CharacterEllipsis" />
-                </StackPanel>
-            </Border>
+            </Popup>
 
             <Popup x:Name="SettingsPopup"
                    PlacementTarget="{Binding ElementName=SettingsButton}"
@@ -937,8 +1311,8 @@
                    StaysOpen="False">
                 <Border Width="390"
                         CornerRadius="24"
-                        Background="#F6F8FB"
-                        BorderBrush="#E1EAF6"
+                        Background="{DynamicResource SecondaryPanelBrush}"
+                        BorderBrush="{DynamicResource PanelBorderBrush}"
                         BorderThickness="1"
                         Padding="16"
                         Effect="{StaticResource SoftShadow}">
@@ -953,10 +1327,39 @@
                                    Foreground="{StaticResource TextBrush}" />
 
                         <Border CornerRadius="18"
-                                Background="White"
-                                BorderBrush="#E7EEF8"
+                                Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
                                 BorderThickness="1"
                                 Padding="16">
+                            <DockPanel>
+                                <ComboBox x:Name="ThemeModeComboBox"
+                                          DockPanel.Dock="Right"
+                                          Width="116"
+                                          SelectedValuePath="Tag"
+                                          SelectionChanged="ThemeModeComboBox_SelectionChanged">
+                                    <ComboBoxItem Content="跟随系统" Tag="System" />
+                                    <ComboBoxItem Content="浅色" Tag="Light" />
+                                    <ComboBoxItem Content="深色" Tag="Dark" />
+                                </ComboBox>
+                                <StackPanel>
+                                    <TextBlock Text="主题模式"
+                                               FontSize="14"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource TextBrush}" />
+                                    <TextBlock Text="选择浅色、深色或跟随 Windows 设置"
+                                               Margin="0,4,0,0"
+                                               FontSize="12"
+                                               Foreground="{DynamicResource SubTextBrush}" />
+                                </StackPanel>
+                            </DockPanel>
+                        </Border>
+
+                        <Border CornerRadius="18"
+                                Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
+                                BorderThickness="1"
+                                Padding="16"
+                                Margin="0,12,0,0">
                             <Grid>
                                 <Grid.RowDefinitions>
                                     <RowDefinition Height="Auto" />
@@ -973,11 +1376,11 @@
                                         <TextBlock Text="透明面板"
                                                    FontSize="14"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#1D2939" />
+                                                   Foreground="{DynamicResource TextBrush}" />
                                         <TextBlock Text="控制窗口背景的通透程度"
                                                    Margin="0,4,0,0"
                                                    FontSize="12"
-                                                   Foreground="#667085" />
+                                                   Foreground="{DynamicResource SubTextBrush}" />
                                     </StackPanel>
                                 </DockPanel>
                                 <Grid Grid.Row="2">
@@ -989,7 +1392,7 @@
                                                VerticalAlignment="Center"
                                                FontSize="13"
                                                FontWeight="SemiBold"
-                                               Foreground="#667085" />
+                                               Foreground="{DynamicResource SubTextBrush}" />
                                     <Slider x:Name="OpacitySlider"
                                             Grid.Column="1"
                                             Style="{StaticResource IOSSliderStyle}"
@@ -1002,8 +1405,49 @@
                         </Border>
 
                         <Border CornerRadius="18"
-                                Background="White"
-                                BorderBrush="#E7EEF8"
+                                Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
+                                BorderThickness="1"
+                                Padding="16"
+                                Margin="0,12,0,0">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="14" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <DockPanel>
+                                    <TextBlock x:Name="StackIconSizeValueText"
+                                               DockPanel.Dock="Right"
+                                               VerticalAlignment="Center"
+                                               FontSize="13"
+                                               FontWeight="SemiBold"
+                                               Foreground="{DynamicResource SubTextBrush}" />
+                                    <StackPanel>
+                                        <TextBlock Text="堆栈图标大小"
+                                                   FontSize="14"
+                                                   FontWeight="SemiBold"
+                                                   Foreground="{DynamicResource TextBrush}" />
+                                        <TextBlock Text="调整我的堆栈中图标和名称的显示尺寸"
+                                                   Margin="0,4,0,0"
+                                                   FontSize="12"
+                                                   Foreground="{DynamicResource SubTextBrush}" />
+                                    </StackPanel>
+                                </DockPanel>
+                                <Slider x:Name="StackIconSizeSlider"
+                                        Grid.Row="2"
+                                        Style="{StaticResource IOSSliderStyle}"
+                                        Minimum="30"
+                                        Maximum="70"
+                                        TickFrequency="4"
+                                        IsSnapToTickEnabled="True"
+                                        ValueChanged="StackIconSizeSlider_ValueChanged" />
+                            </Grid>
+                        </Border>
+
+                        <Border CornerRadius="18"
+                                Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
                                 BorderThickness="1"
                                 Padding="16"
                                 Margin="0,12,0,0">
@@ -1017,11 +1461,11 @@
                                     <TextBlock Text="开机自启"
                                                FontSize="14"
                                                FontWeight="SemiBold"
-                                               Foreground="#1D2939" />
+                                               Foreground="{DynamicResource TextBrush}" />
                                     <TextBlock Text="登录 Windows 后自动启动 QuickShelf"
                                                Margin="0,4,0,0"
                                                FontSize="12"
-                                               Foreground="#667085" />
+                                               Foreground="{DynamicResource SubTextBrush}" />
                                 </StackPanel>
                             </DockPanel>
                         </Border>
@@ -1030,10 +1474,10 @@
                                    Margin="4,16,0,8"
                                    FontSize="13"
                                    FontWeight="SemiBold"
-                                   Foreground="#667085" />
+                                   Foreground="{DynamicResource SubTextBrush}" />
                         <Border CornerRadius="18"
-                                Background="White"
-                                BorderBrush="#E7EEF8"
+                                Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
                                 BorderThickness="1"
                                 Padding="14">
                             <StackPanel>
@@ -1047,16 +1491,16 @@
                                         <TextBlock Text="精简列表"
                                                    FontSize="14"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#1D2939" />
+                                                   Foreground="{DynamicResource TextBrush}" />
                                         <TextBlock Text="隐藏重复项、网页壳和更新/卸载入口"
                                                    Margin="0,4,0,0"
                                                    FontSize="12"
-                                                   Foreground="#667085" />
+                                                   Foreground="{DynamicResource SubTextBrush}" />
                                     </StackPanel>
                                 </DockPanel>
 
                                 <StackPanel x:Name="CompactAllAppsOptionsPanel">
-                                    <Border Height="1" Background="#EEF2F7" Margin="0,13,0,12" />
+                                    <Border Height="1" Background="{DynamicResource DividerBrush}" Margin="0,13,0,12" />
 
                                     <DockPanel>
                                         <CheckBox x:Name="HideShortcutItemsToggle"
@@ -1068,7 +1512,7 @@
                                                    VerticalAlignment="Center"
                                                    FontSize="13"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#475467" />
+                                                   Foreground="{DynamicResource SubTextBrush}" />
                                     </DockPanel>
 
                                     <DockPanel Margin="0,10,0,0">
@@ -1081,7 +1525,7 @@
                                                    VerticalAlignment="Center"
                                                    FontSize="13"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#475467" />
+                                                   Foreground="{DynamicResource SubTextBrush}" />
                                     </DockPanel>
 
                                     <DockPanel Margin="0,10,0,0">
@@ -1094,7 +1538,7 @@
                                                    VerticalAlignment="Center"
                                                    FontSize="13"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#475467" />
+                                                   Foreground="{DynamicResource SubTextBrush}" />
                                     </DockPanel>
 
                                     <DockPanel Margin="0,10,0,0">
@@ -1107,7 +1551,7 @@
                                                    VerticalAlignment="Center"
                                                    FontSize="13"
                                                    FontWeight="SemiBold"
-                                                   Foreground="#475467" />
+                                                   Foreground="{DynamicResource SubTextBrush}" />
                                     </DockPanel>
                                 </StackPanel>
                             </StackPanel>
@@ -1117,10 +1561,10 @@
                                    Margin="4,16,0,8"
                                    FontSize="13"
                                    FontWeight="SemiBold"
-                                   Foreground="#667085" />
+                                   Foreground="{DynamicResource SubTextBrush}" />
                         <Border CornerRadius="18"
-                                Background="White"
-                                BorderBrush="#E7EEF8"
+                                Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
                                 BorderThickness="1"
                                 Padding="14">
                             <UniformGrid Columns="6">
@@ -1161,15 +1605,15 @@
                                    Margin="4,16,0,8"
                                    FontSize="13"
                                    FontWeight="SemiBold"
-                                   Foreground="#667085" />
+                                   Foreground="{DynamicResource SubTextBrush}" />
                         <Border CornerRadius="18"
-                                Background="White"
-                                BorderBrush="#E7EEF8"
+                                Background="{DynamicResource CardBrush}"
+                                BorderBrush="{DynamicResource PanelBorderBrush}"
                                 BorderThickness="1"
                                 Padding="14">
                             <StackPanel>
                                 <TextBlock x:Name="HotKeySummaryText"
-                                           Foreground="#667085"
+                                           Foreground="{DynamicResource SubTextBrush}"
                                            FontSize="12" />
                                 <TextBox x:Name="HotKeyCaptureBox"
                                          Margin="0,10,0,0"

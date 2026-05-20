@@ -16,6 +16,7 @@ public enum LaunchItemKind
 
 public sealed class LaunchItem : INotifyPropertyChanged
 {
+    private string? _displayName;
     private string _groupName = string.Empty;
     private string? _iconPath;
 
@@ -28,6 +29,25 @@ public sealed class LaunchItem : INotifyPropertyChanged
     public LaunchItemKind Kind { get; set; }
 
     public string Source { get; set; } = string.Empty;
+
+    public string? DisplayName
+    {
+        get => _displayName;
+        set
+        {
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (_displayName == normalized)
+            {
+                return;
+            }
+
+            _displayName = normalized;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(DisplayTitle));
+        }
+    }
+
+    public string DisplayTitle => string.IsNullOrWhiteSpace(DisplayName) ? Name : DisplayName;
 
     public string GroupName
     {
@@ -89,6 +109,7 @@ public sealed class LaunchItem : INotifyPropertyChanged
         {
             Id = Id,
             Name = Name,
+            DisplayName = DisplayName,
             Path = Path,
             Kind = Kind,
             Source = Source,

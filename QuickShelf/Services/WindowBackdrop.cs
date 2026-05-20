@@ -10,7 +10,7 @@ public static class WindowBackdrop
     private const int DwmwaSystemBackdropType = 38;
     private const int DwmsbtNone = 1;
     private const int DwmsbtTransientWindow = 3;
-    private const int DwmwcpRound = 2;
+    private const int DwmwcpDoNotRound = 1;
 
     public static void Apply(Window window, bool enabled, double opacity)
     {
@@ -20,15 +20,16 @@ public static class WindowBackdrop
             return;
         }
 
-        SetRoundedCorners(hwnd);
+        SetNativeCorners(hwnd);
         SetSystemBackdrop(hwnd, false);
     }
 
-    private static void SetRoundedCorners(IntPtr hwnd)
+    private static void SetNativeCorners(IntPtr hwnd)
     {
         try
         {
-            var preference = DwmwcpRound;
+            // WPF 的 GlassRoot 已经负责圆角裁剪，禁用 DWM 额外圆角避免外沿出现浅色边线。
+            var preference = DwmwcpDoNotRound;
             _ = DwmSetWindowAttribute(
                 hwnd,
                 DwmwaWindowCornerPreference,
