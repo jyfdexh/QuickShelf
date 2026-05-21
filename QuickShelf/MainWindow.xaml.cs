@@ -14,11 +14,13 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using QuickShelf.Models;
 using QuickShelf.Services;
 using ToolGood.Words.Pinyin;
 using Drawing = System.Drawing;
+using WpfButtonBase = System.Windows.Controls.Primitives.ButtonBase;
 using WinForms = System.Windows.Forms;
 
 namespace QuickShelf;
@@ -43,6 +45,24 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private const int HtBottom = 15;
     private const int HtBottomLeft = 16;
     private const int HtBottomRight = 17;
+
+    public static readonly RoutedUICommand RenameFavoriteGroupCommand = CreateCommand(nameof(RenameFavoriteGroupCommand));
+    public static readonly RoutedUICommand DeleteFavoriteGroupCommand = CreateCommand(nameof(DeleteFavoriteGroupCommand));
+    public static readonly RoutedUICommand AddAllItemToStackCommand = CreateCommand(nameof(AddAllItemToStackCommand));
+    public static readonly RoutedUICommand RemoveFavoriteCommand = CreateCommand(nameof(RemoveFavoriteCommand));
+    public static readonly RoutedUICommand OpenFavoriteCommand = CreateCommand(nameof(OpenFavoriteCommand));
+    public static readonly RoutedUICommand RunFavoriteAsAdminCommand = CreateCommand(nameof(RunFavoriteAsAdminCommand));
+    public static readonly RoutedUICommand OpenFavoriteLocationCommand = CreateCommand(nameof(OpenFavoriteLocationCommand));
+    public static readonly RoutedUICommand CopyFavoritePathCommand = CreateCommand(nameof(CopyFavoritePathCommand));
+    public static readonly RoutedUICommand EditFavoriteDisplayNameCommand = CreateCommand(nameof(EditFavoriteDisplayNameCommand));
+    public static readonly RoutedUICommand ClearFavoriteDisplayNameCommand = CreateCommand(nameof(ClearFavoriteDisplayNameCommand));
+    public static readonly RoutedUICommand RemoveFolderCommand = CreateCommand(nameof(RemoveFolderCommand));
+    public static readonly RoutedUICommand OpenFolderCommand = CreateCommand(nameof(OpenFolderCommand));
+    public static readonly RoutedUICommand OpenFolderLocationCommand = CreateCommand(nameof(OpenFolderLocationCommand));
+    public static readonly RoutedUICommand CopyFolderPathCommand = CreateCommand(nameof(CopyFolderPathCommand));
+    public static readonly RoutedUICommand EditFolderDisplayNameCommand = CreateCommand(nameof(EditFolderDisplayNameCommand));
+    public static readonly RoutedUICommand ClearFolderDisplayNameCommand = CreateCommand(nameof(ClearFolderDisplayNameCommand));
+
     private const uint ModAlt = 0x0001;
     private const uint ModControl = 0x0002;
     private const uint ModShift = 0x0004;
@@ -102,6 +122,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private readonly ObservableCollection<string> _favoriteGroups = [];
     private readonly ICollectionView _allItemsView;
     private readonly ICollectionView _favoriteItemsView;
+    private readonly DispatcherTimer _searchRefreshTimer;
     private readonly Dictionary<string, SearchIndex> _searchIndexes = new(StringComparer.Ordinal);
     private readonly HashSet<string> _compactHiddenAllItemIds = new(StringComparer.Ordinal);
     private readonly bool _startHidden;
@@ -117,6 +138,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
     private bool _isUpdatingFavoriteGroups;
     private bool _hotKeyRegistered;
     private bool _allAppsLoaded;
+    private string _normalizedAllItemsQuery = string.Empty;
     private bool _favoriteOrderChangedDuringDrag;
     private bool _favoriteGroupOrderChangedDuringDrag;
     private bool _folderOrderChangedDuringDrag;
@@ -163,12 +185,67 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         FolderItemsList.ItemsSource = _folders;
         RecentItemsList.ItemsSource = _recentItems;
         FavoriteGroupList.ItemsSource = _favoriteGroups;
+        AllItemsList.AddHandler(WpfButtonBase.ClickEvent, new RoutedEventHandler(AllItemsList_ButtonClick));
+        RecentItemsList.AddHandler(WpfButtonBase.ClickEvent, new RoutedEventHandler(RecentItemsList_ButtonClick));
+
+        _searchRefreshTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(140)
+        };
+        _searchRefreshTimer.Tick += SearchRefreshTimer_Tick;
+        RegisterCommandBindings();
 
         SourceInitialized += MainWindow_SourceInitialized;
         Loaded += MainWindow_Loaded;
         Closing += MainWindow_Closing;
         StateChanged += MainWindow_StateChanged;
         UpdateWindowControlState();
+    }
+
+    private static RoutedUICommand CreateCommand(string name)
+    {
+        return new RoutedUICommand(name, name, typeof(MainWindow));
+    }
+
+    private void RegisterCommandBindings()
+    {
+        BindMenuCommand(RenameFavoriteGroupCommand, RenameFavoriteGroupMenuItem_Click);
+        BindMenuCommand(DeleteFavoriteGroupCommand, DeleteFavoriteGroupMenuItem_Click);
+        BindMenuCommand(AddAllItemToStackCommand, AddAllItemToStackMenuItem_Click);
+        BindMenuCommand(RemoveFavoriteCommand, RemoveFavoriteMenuItem_Click);
+        BindMenuCommand(OpenFavoriteCommand, OpenFavoriteMenuItem_Click);
+        BindMenuCommand(RunFavoriteAsAdminCommand, RunFavoriteAsAdminMenuItem_Click);
+        BindMenuCommand(OpenFavoriteLocationCommand, OpenFavoriteLocationMenuItem_Click);
+        BindMenuCommand(CopyFavoritePathCommand, CopyFavoritePathMenuItem_Click);
+        BindMenuCommand(EditFavoriteDisplayNameCommand, EditFavoriteDisplayNameMenuItem_Click);
+        BindMenuCommand(ClearFavoriteDisplayNameCommand, ClearFavoriteDisplayNameMenuItem_Click);
+        BindMenuCommand(RemoveFolderCommand, RemoveFolderMenuItem_Click);
+        BindMenuCommand(OpenFolderCommand, OpenFolderMenuItem_Click);
+        BindMenuCommand(OpenFolderLocationCommand, OpenFolderLocationMenuItem_Click);
+        BindMenuCommand(CopyFolderPathCommand, CopyFolderPathMenuItem_Click);
+        BindMenuCommand(EditFolderDisplayNameCommand, EditFolderDisplayNameMenuItem_Click);
+        BindMenuCommand(ClearFolderDisplayNameCommand, ClearFolderDisplayNameMenuItem_Click);
+    }
+
+    private void BindMenuCommand(RoutedUICommand command, RoutedEventHandler handler)
+    {
+        CommandBindings.Add(new CommandBinding(
+            command,
+            (_, e) =>
+            {
+                var menuItem = new MenuItem
+                {
+                    CommandParameter = e.Parameter,
+                    DataContext = e.Parameter
+                };
+                handler(menuItem, new RoutedEventArgs());
+                e.Handled = true;
+            },
+            (_, e) =>
+            {
+                e.CanExecute = e.Parameter is not null;
+                e.Handled = true;
+            }));
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -221,6 +298,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
+        _normalizedAllItemsQuery = NormalizeSearchText(SearchBox.Text);
         _allItemsView.Refresh();
         SetStatus(BuildAllAppsDisplayStatus());
     }
@@ -266,6 +344,35 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         if ((sender as FrameworkElement)?.DataContext is LaunchItem item)
         {
             AddFavorite(item);
+        }
+    }
+
+    private void AddAllItemToStackMenuItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (GetMenuItemLaunchItem(sender) is LaunchItem item)
+        {
+            AddFavorite(item);
+        }
+    }
+
+    private void AllItemsList_ButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (FindAncestor<WpfButtonBase>(e.OriginalSource as DependencyObject) is not { } button ||
+            !string.Equals(button.Tag as string, "AddFromAllItem", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        AddFromAllItemButton_Click(button, e);
+        e.Handled = true;
+    }
+
+    private void AllItemsList_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject) is { } listBoxItem)
+        {
+            listBoxItem.IsSelected = true;
+            AllItemsList.Focus();
         }
     }
 
@@ -463,7 +570,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Mouse.OverrideCursor = System.Windows.Input.Cursors.Hand;
             HideOriginalFavoriteGroupDuringDrag(listBoxItem);
             ShowFavoriteGroupDragPreview(groupName, listBoxItem);
-            DragDrop.DoDragDrop(FavoriteGroupList, data, System.Windows.DragDropEffects.Move);
+            TryDoDragDrop(FavoriteGroupList, data, System.Windows.DragDropEffects.Move);
         }
         finally
         {
@@ -778,6 +885,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
         UpdateCompactOptionsVisibility();
         RebuildCompactAllItemFilter();
+        _normalizedAllItemsQuery = NormalizeSearchText(SearchBox?.Text);
         _allItemsView.Refresh();
         SaveSettings();
         SetStatus(_allAppsLoaded
@@ -950,6 +1058,35 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)
     {
+        QueueAllItemsSearchRefresh();
+    }
+
+    private void SearchRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        _searchRefreshTimer.Stop();
+        RefreshAllItemsSearch();
+    }
+
+    private void QueueAllItemsSearchRefresh()
+    {
+        _normalizedAllItemsQuery = NormalizeSearchText(SearchBox?.Text);
+        if (!_allAppsLoaded || _isBusy)
+        {
+            return;
+        }
+
+        _searchRefreshTimer.Stop();
+        _searchRefreshTimer.Start();
+    }
+
+    private void RefreshAllItemsSearch()
+    {
+        _normalizedAllItemsQuery = NormalizeSearchText(SearchBox?.Text);
+        if (!_allAppsLoaded && _allItems.Count == 0)
+        {
+            return;
+        }
+
         _allItemsView.Refresh();
     }
 
@@ -1006,6 +1143,39 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         }
     }
 
+    private void RecentItemsList_ButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (FindAncestor<WpfButtonBase>(e.OriginalSource as DependencyObject) is not { } button ||
+            !string.Equals(button.Tag as string, "AddRecentFile", StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        AddRecentFileButton_Click(button, e);
+        e.Handled = true;
+    }
+
+    private bool TryDoDragDrop(DependencyObject dragSource, object data, System.Windows.DragDropEffects allowedEffects)
+    {
+        try
+        {
+            DragDrop.DoDragDrop(dragSource, data, allowedEffects);
+            return true;
+        }
+        catch (COMException ex)
+        {
+            AppLog.Warn("拖动启动失败。", ex);
+            SetStatus("拖动启动失败，请再试一次。");
+            return false;
+        }
+        catch (InvalidOperationException ex)
+        {
+            AppLog.Warn("拖动启动失败。", ex);
+            SetStatus("拖动启动失败，请再试一次。");
+            return false;
+        }
+    }
+
     private void FolderItemsList_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (FolderItemsList.SelectedItem is LaunchItem item)
@@ -1057,7 +1227,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             Mouse.OverrideCursor = System.Windows.Input.Cursors.Hand;
             HideOriginalFolderDuringDrag(listBoxItem);
             ShowFolderDragPreview(item, listBoxItem);
-            DragDrop.DoDragDrop(FolderItemsList, data, System.Windows.DragDropEffects.Move);
+            TryDoDragDrop(FolderItemsList, data, System.Windows.DragDropEffects.Move);
         }
         finally
         {
@@ -1091,7 +1261,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void FolderItem_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is LaunchItem item)
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)?.DataContext is LaunchItem item)
         {
             FolderItemsList.SelectedItem = item;
             FolderItemsList.Focus();
@@ -1145,7 +1315,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             _favoriteOrderChangedDuringDrag = false;
             HideOriginalFavoriteDuringDrag(listBoxItem);
             ShowFavoriteDragPreview(item);
-            DragDrop.DoDragDrop(FavoritesList, item, System.Windows.DragDropEffects.Move);
+            TryDoDragDrop(FavoritesList, item, System.Windows.DragDropEffects.Move);
         }
         finally
         {
@@ -2025,7 +2195,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
     private void FavoriteTile_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is LaunchItem item)
+        if (FindAncestor<ListBoxItem>(e.OriginalSource as DependencyObject)?.DataContext is LaunchItem item)
         {
             FavoritesList.SelectedItem = item;
             FavoritesList.Focus();
@@ -2186,6 +2356,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
 
             var items = await _scanner.ScanAsync();
             await Task.Run(() => _iconCache.PopulateIcons(items));
+            var searchIndexes = await Task.Run(() => BuildSearchIndexes(items));
 
             _allItems.Clear();
             _searchIndexes.Clear();
@@ -2194,7 +2365,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
                 _allItems.Add(item);
             }
 
+            foreach (var (id, index) in searchIndexes)
+            {
+                _searchIndexes[id] = index;
+            }
+
             RebuildCompactAllItemFilter();
+            _normalizedAllItemsQuery = NormalizeSearchText(SearchBox?.Text);
             _allItemsView.Refresh();
             _allAppsLoaded = true;
             SetStatus(BuildAllAppsScanStatus());
@@ -2401,13 +2578,7 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return false;
         }
 
-        var query = SearchBox?.Text?.Trim();
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return true;
-        }
-
-        var normalizedQuery = NormalizeSearchText(query);
+        var normalizedQuery = _normalizedAllItemsQuery;
         if (string.IsNullOrWhiteSpace(normalizedQuery))
         {
             return true;
@@ -2785,14 +2956,13 @@ public partial class MainWindow : Window, INotifyPropertyChanged
         {
             var index = _allItems.IndexOf(existing);
             _allItems[index] = item;
-            _searchIndexes.Remove(item.Id);
         }
         else
         {
             _allItems.Insert(0, item);
-            _searchIndexes.Remove(item.Id);
         }
 
+        _searchIndexes[item.Id] = CreateSearchIndex(item);
         RebuildCompactAllItemFilter();
         _allItemsView.Refresh();
     }
@@ -4369,15 +4539,31 @@ public partial class MainWindow : Window, INotifyPropertyChanged
             return index;
         }
 
+        index = CreateSearchIndex(item);
+        _searchIndexes[item.Id] = index;
+        return index;
+    }
+
+    private static Dictionary<string, SearchIndex> BuildSearchIndexes(IEnumerable<LaunchItem> items)
+    {
+        var indexes = new Dictionary<string, SearchIndex>(StringComparer.Ordinal);
+        foreach (var item in items)
+        {
+            indexes[item.Id] = CreateSearchIndex(item);
+        }
+
+        return indexes;
+    }
+
+    private static SearchIndex CreateSearchIndex(LaunchItem item)
+    {
         var fields = BuildSearchFields(item)
             .Select(NormalizeSearchText)
             .Where(field => !string.IsNullOrWhiteSpace(field))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        index = new SearchIndex(fields);
-        _searchIndexes[item.Id] = index;
-        return index;
+        return new SearchIndex(fields);
     }
 
     private static IEnumerable<string> BuildSearchFields(LaunchItem item)

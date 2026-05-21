@@ -1,6 +1,7 @@
 <Window x:Class="QuickShelf.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:QuickShelf"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
@@ -389,11 +390,13 @@
                         <MenuItem Header="重命名"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="RenameFavoriteGroupMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.RenameFavoriteGroupCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <MenuItem Header="删除"
                                   Style="{StaticResource DangerFavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="DeleteFavoriteGroupMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.DeleteFavoriteGroupCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                     </ContextMenu>
                 </Setter.Value>
             </Setter>
@@ -479,8 +482,7 @@
             <Grid Width="{Binding StackTileWidth, RelativeSource={RelativeSource AncestorType=Window}}"
                   Height="{Binding StackTileHeight, RelativeSource={RelativeSource AncestorType=Window}}"
                   Margin="2"
-                  Cursor="Hand"
-                  PreviewMouseRightButtonDown="FavoriteTile_PreviewMouseRightButtonDown">
+                  Cursor="Hand">
                 <Grid.ToolTip>
                     <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
                              Style="{StaticResource FavoriteToolTipStyle}">
@@ -504,34 +506,41 @@
                         <MenuItem Header="移除"
                                   Style="{StaticResource DangerFavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="RemoveFavoriteMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.RemoveFavoriteCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
                         <MenuItem Header="打开"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="OpenFavoriteMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.OpenFavoriteCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <MenuItem Header="以管理员身份启动"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="RunFavoriteAsAdminMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.RunFavoriteAsAdminCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
                         <MenuItem Header="打开所在位置"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="OpenFavoriteLocationMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.OpenFavoriteLocationCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <MenuItem Header="复制路径"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="CopyFavoritePathMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.CopyFavoritePathCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
                         <MenuItem Header="修改备注"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="EditFavoriteDisplayNameMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.EditFavoriteDisplayNameCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <MenuItem Header="清除备注"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="ClearFavoriteDisplayNameMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.ClearFavoriteDisplayNameCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                     </ContextMenu>
                 </Grid.ContextMenu>
                 <Grid.RowDefinitions>
@@ -567,8 +576,7 @@
 
         <DataTemplate x:Key="FolderItemTemplate">
             <Grid MinHeight="48"
-                  Margin="4,2"
-                  PreviewMouseRightButtonDown="FolderItem_PreviewMouseRightButtonDown">
+                  Margin="4,2">
                 <Grid.ToolTip>
                     <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
                              Style="{StaticResource FavoriteToolTipStyle}">
@@ -592,30 +600,36 @@
                         <MenuItem Header="移除"
                                   Style="{StaticResource DangerFavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="RemoveFolderMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.RemoveFolderCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
                         <MenuItem Header="打开"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="OpenFolderMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.OpenFolderCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
                         <MenuItem Header="打开所在位置"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="OpenFolderLocationMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.OpenFolderLocationCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <MenuItem Header="复制路径"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="CopyFolderPathMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.CopyFolderPathCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
                         <MenuItem Header="修改备注"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="EditFolderDisplayNameMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.EditFolderDisplayNameCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                         <MenuItem Header="清除备注"
                                   Style="{StaticResource FavoriteContextMenuItemStyle}"
                                   CommandParameter="{Binding}"
-                                  Click="ClearFolderDisplayNameMenuItem_Click" />
+                                  Command="{x:Static local:MainWindow.ClearFolderDisplayNameCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
                     </ContextMenu>
                 </Grid.ContextMenu>
                 <Grid.ColumnDefinitions>
@@ -691,12 +705,61 @@
                         BorderBrush="{DynamicResource ToolbarBorderBrush}"
                         Cursor="Hand"
                         ToolTip="加入堆栈"
-                        Click="AddRecentFileButton_Click" />
+                        Tag="AddRecentFile" />
             </Grid>
         </DataTemplate>
 
         <DataTemplate x:Key="AllItemTemplate">
             <Grid MinHeight="58" Margin="6,6">
+                <Grid.ToolTip>
+                    <ToolTip DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                             Style="{StaticResource FavoriteToolTipStyle}">
+                        <StackPanel MinWidth="260" MaxWidth="520">
+                            <TextBlock Text="{Binding DisplayTitle}"
+                                       FontSize="14"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextBrush}"
+                                       TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding Path}"
+                                       Margin="0,5,0,0"
+                                       FontSize="12"
+                                       Foreground="{DynamicResource SubTextBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </ToolTip>
+                </Grid.ToolTip>
+                <Grid.ContextMenu>
+                    <ContextMenu DataContext="{Binding PlacementTarget.DataContext, RelativeSource={RelativeSource Self}}"
+                                 Style="{StaticResource FavoriteContextMenuStyle}">
+                        <MenuItem Header="加入堆栈"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Command="{x:Static local:MainWindow.AddAllItemToStackCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                        <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
+                        <MenuItem Header="打开"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Command="{x:Static local:MainWindow.OpenFavoriteCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                        <MenuItem Header="以管理员身份启动"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Command="{x:Static local:MainWindow.RunFavoriteAsAdminCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                        <Separator Style="{StaticResource FavoriteContextMenuSeparatorStyle}" />
+                        <MenuItem Header="打开所在位置"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Command="{x:Static local:MainWindow.OpenFavoriteLocationCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                        <MenuItem Header="复制路径"
+                                  Style="{StaticResource FavoriteContextMenuItemStyle}"
+                                  CommandParameter="{Binding}"
+                                  Command="{x:Static local:MainWindow.CopyFavoritePathCommand}"
+                                  CommandTarget="{Binding PlacementTarget, RelativeSource={RelativeSource AncestorType=ContextMenu}}" />
+                    </ContextMenu>
+                </Grid.ContextMenu>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="48" />
                     <ColumnDefinition Width="*" />
@@ -736,7 +799,7 @@
                         Background="{DynamicResource InputBrush}"
                         BorderBrush="{DynamicResource ToolbarBorderBrush}"
                         Cursor="Hand"
-                        Click="AddFromAllItemButton_Click" />
+                        Tag="AddFromAllItem" />
             </Grid>
         </DataTemplate>
     </Window.Resources>
@@ -1003,8 +1066,9 @@
                                      AllowDrop="True"
                                      SelectionMode="Single"
                                      ToolTip="可直接拖入桌面图标、文件或文件夹"
-                                     PreviewMouseLeftButtonDown="FavoritesList_PreviewMouseLeftButtonDown"
-                                     PreviewMouseMove="FavoritesList_PreviewMouseMove"
+                                      PreviewMouseLeftButtonDown="FavoritesList_PreviewMouseLeftButtonDown"
+                                      PreviewMouseRightButtonDown="FavoriteTile_PreviewMouseRightButtonDown"
+                                      PreviewMouseMove="FavoritesList_PreviewMouseMove"
                                      DragOver="FavoritesList_DragOver"
                                      DragLeave="FavoritesList_DragLeave"
                                      Drop="FavoritesList_Drop"
@@ -1073,8 +1137,9 @@
                                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                                      ScrollViewer.VerticalScrollBarVisibility="Auto"
                                      ItemTemplate="{StaticResource FolderItemTemplate}"
-                                     PreviewMouseLeftButtonDown="FolderItemsList_PreviewMouseLeftButtonDown"
-                                     PreviewMouseMove="FolderItemsList_PreviewMouseMove"
+                                      PreviewMouseLeftButtonDown="FolderItemsList_PreviewMouseLeftButtonDown"
+                                      PreviewMouseRightButtonDown="FolderItem_PreviewMouseRightButtonDown"
+                                      PreviewMouseMove="FolderItemsList_PreviewMouseMove"
                                      DragOver="FolderStack_DragOver"
                                      DragLeave="FolderItemsList_DragLeave"
                                      Drop="FolderStack_Drop"
@@ -1283,6 +1348,7 @@
                                  ScrollViewer.VerticalScrollBarVisibility="Auto"
                                  ItemTemplate="{StaticResource AllItemTemplate}"
                                  MouseDoubleClick="AllItemsList_MouseDoubleClick"
+                                 PreviewMouseRightButtonDown="AllItemsList_PreviewMouseRightButtonDown"
                                  PreviewKeyDown="List_PreviewKeyDown" />
 
                         <Button Grid.Row="3"
